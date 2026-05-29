@@ -1,174 +1,142 @@
 # TeslaCam Viewer
 
+TeslaCam Viewer is a self hosted web app for browsing Tesla dashcam clips and playing the four camera views in sync.
 
+## Features
 
-A self-hosted web app (Astro + Node SSR) that browses **TeslaCam** dashcam footage
+- TeslaCam clip browsing and timeline playback
+- Four camera synchronized player (`front`, `back`, `left_repeater`, `right_repeater`)
+- SFTP upload workflow
+- Multi vehicle folder support (`MX_Name`, `MY_Name`, `MS_Name`, `M3_Name`)
+- Authentication with password, passkey, and TOTP
+- LAN friendly hostname publishing with `teslacam.local`
 
-and plays each event's four cameras in a synced grid as one continuous timeline.
+## Requirements
 
+- Docker Desktop (Windows) or Docker Engine plus Docker Compose (Linux)
+- Local network access for browser and SFTP clients
+- Available ports: `4321` for web and `5432` for Postgres by default
 
+## Quick install from Releases
 
-- Clips are **uploaded to the server over SFTP** (no path picker in the UI).
+If you only want to run the app, use the release bundle.
 
-- Scans `SavedClips` and `SentryClips` (RecentClips is ignored).
+Windows PowerShell:
 
-- **Multi-vehicle** layouts: `MX_Name`, `MY_Name`, `MS_Name`, `M3_Name` folders.
-
-- Full player controls, HTTP Range streaming, auth (passkey / TOTP).
-
-
-
-## Expected folder layout
-
-
-
-Upload into the server's TeslaCam folder (SFTP remote path `/upload`):
-
-
-
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$repo='squishylemon/TeslaCam-Viewer'; $api='https://api.github.com/repos/'+$repo+'/releases/latest'; $asset=(Invoke-RestMethod -Headers @{ 'User-Agent'='teslacam-installer' } $api).assets | Where-Object { $_.name -like 'teslacam-viewer-*.zip' } | Select-Object -First 1; Invoke-WebRequest -Headers @{ 'User-Agent'='teslacam-installer' } -Uri $asset.browser_download_url -OutFile teslacam.zip; Remove-Item -Recurse -Force teslacam-release -ErrorAction SilentlyContinue; Expand-Archive -Path teslacam.zip -DestinationPath teslacam-release -Force; Set-Location teslacam-release; .\setup.ps1"
 ```
 
+Linux:
+
+```bash
+repo='squishylemon/TeslaCam-Viewer'; url="$(curl -fsSL -H 'User-Agent: teslacam-installer' "https://api.github.com/repos/$repo/releases/latest" | jq -r '.assets[] | select(.name|test("^teslacam-viewer-.*\\.zip$")) | .browser_download_url' | head -n1)"; curl -fL "$url" -o teslacam.zip && rm -rf teslacam-release && mkdir -p teslacam-release && unzip -oq teslacam.zip -d teslacam-release && cd teslacam-release && chmod +x setup.sh && ./setup.sh
+```
+
+Note: the Linux command expects `curl`, `jq`, and `unzip`.
+
+## Manual install from source bundle
+
+1. Ensure `config.env.example`, `docker-compose.yml`, `setup.ps1`, and `setup.sh` are present.
+2. Run setup:
+   - Windows: `.\setup.ps1`
+   - Linux: `chmod +x setup.sh && ./setup.sh`
+3. Open the viewer:
+   - `http://teslacam.local:4321`
+   - or `http://<LAN_IP>:4321`
+
+Setup automatically detects a LAN IP, writes `config.env`, pulls images, and starts containers.
+
+## Default credentials and first run
+
+- Username: `admin`
+- Password: `admin`
+
+After first login:
+
+1. Open Settings.
+2. Change password.
+3. Configure passkey and or TOTP.
+4. Copy SFTP details for uploading clips.
+
+## Upload clips
+
+Upload via SFTP to `/upload`. Example layout:
+
+```text
 /upload/
-
   MX_Family/
-
     SavedClips/
-
       2025-12-10_18-55-03/
-
-        ...
-
     SentryClips/
-
-      ...
-
   MY_Daily/
-
     SavedClips/
-
     SentryClips/
-
 ```
 
+Legacy single vehicle layout is also supported:
 
-
-Legacy single-car layout also works (`SavedClips` / `SentryClips` directly under `/upload`).
-
-
-
-## Run with Docker (recommended)
-
-**End users (pre-built images):** only need `docker-compose.yml`, `config.env`, and `setup.ps1` / `setup.sh`.
-
-```powershell
-copy config.env.example config.env
-# Edit YOUR_GITHUB_USER in the TESLACAM_*_IMAGE lines (who published the images)
-.\setup.ps1
+```text
+/upload/SavedClips
+/upload/SentryClips
 ```
 
-```bash
-cp config.env.example config.env
-./setup.sh
-```
-
-Setup detects your LAN IP, pulls images from GHCR, and starts the stack. Open `http://teslacam.local:4321` (or the IP URL it prints).
-
-- **Viewer:** port `4321` (HTTP by default; set `USE_HTTPS=true` for passkeys)
-- **SFTP:** random port + password (see Settings after login)
-- **mDNS:** `host-mdns` container advertises `teslacam.local` on the LAN
-
-Default login: `admin` / `admin`
-
-### Publish images (maintainers)
-
-GitHub Actions (`.github/workflows/docker-publish.yml`) builds and pushes to:
-
-`ghcr.io/<your-github-username>/teslacam-web:latest` (+ `teslacam-sftp`, `teslacam-sftp-init`, `teslacam-host-mdns`, `teslacam-mdns`)
-
-After the first workflow run, set each package to **Public** on github.com → Packages.
-
-### Develop from source
-
-```bash
-./setup.sh --dev
-```
-
-```powershell
-.\setup.ps1 -Dev
-```
-
-This builds locally using `docker-compose.dev.yml` instead of pulling images.
-
-## Upload footage
-
-1. In Settings, use **Connect with SFTP app** (or copy host, port, user, password).
-2. Upload your TeslaCam folders — you land directly in the upload area (chroot).
-3. Refresh the viewer and pick a vehicle if needed.
-
-Example CLI (use values from Settings):
+SFTP CLI example:
 
 ```bash
 sftp -P PORT teslacam@SERVER_IP
 put -r MX_MyCar
 ```
 
+## Core runtime behavior
 
+- Web UI is HTTP by default; set `USE_HTTPS=true` to enable HTTPS mode
+- `host-mdns` advertises `teslacam.local` on the LAN
+- SFTP credentials and port are shown in Settings after login
+- Uploaded clips are read only by the viewer and are not modified
 
-## Run locally (without Docker)
+## Configuration
 
+Generated `config.env` keys:
 
-
-Requires Node 20+ and PostgreSQL:
-
-
-
-```bash
-
-docker compose up -d db sftp
-
-cp .env.example .env
-
-npm install
-
-npm run dev
-
-```
-
-
-
-Clips are read from `TESLACAM_DIR` (default `./data/TeslaCam`). The SFTP container writes to the same `teslacam` Docker volume when you use compose; for pure local dev, copy files into `data/TeslaCam` or point `TESLACAM_DIR` at your folder.
-
-
+- `LAN_IP`
+- `SITE_HOSTNAME` (default `teslacam.local`)
+- `WEB_PORT` (default `4321`)
+- `USE_HTTPS` (`false` by default)
+- `SESSION_SECRET`
+- `TESLACAM_*_IMAGE` image references
 
 ## Keyboard shortcuts
 
+| Key | Action |
+| --- | --- |
+| Space / K | Play or pause |
+| J / Left Arrow | Back 10 seconds |
+| L / Right Arrow | Forward 10 seconds |
+| P | Previous segment |
+| N | Next segment |
+| M | Mute or unmute |
+| F | Fullscreen |
 
+## Development
 
-| Key            | Action                  |
+Build and run from source with local builds:
 
-| -------------- | ----------------------- |
+```powershell
+.\setup.ps1 -Dev
+```
 
-| Space / K      | Play / Pause            |
+```bash
+./setup.sh --dev
+```
 
-| J / Left arrow | Back 10s                |
+This uses `docker-compose.dev.yml`.
 
-| L / Right arrow| Forward 10s             |
+## Publishing and releases
 
-| P              | Previous segment        |
+- Docker image publishing workflow: `.github/workflows/docker-publish.yml`
+- Release zip workflow: `.github/workflows/release.yml`
+- Release zip docs: `deploy/README.md`
 
-| N              | Next segment            |
-
-| M              | Mute / Unmute           |
-
-| F              | Fullscreen              |
-
-
-
-## Notes
-
-
-
-- Cameras: `front`, `back`, `left_repeater`, `right_repeater`.
-
-- The viewer does not modify uploaded files.
+For public user installs, make GHCR packages public in GitHub Packages settings.
 
