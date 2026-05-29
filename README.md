@@ -90,9 +90,29 @@ sftp -P PORT teslacam@SERVER_IP
 put -r MX_MyCar
 ```
 
+## HTTPS and `ERR_SSL_PROTOCOL_ERROR`
+
+`ERR_SSL_PROTOCOL_ERROR` means the browser used **https** but the server is speaking **plain HTTP**.
+
+| `USE_HTTPS` in config.env | Open this URL |
+| --- | --- |
+| `false` (default) | `http://teslacam.local:4321` or `http://<LAN_IP>:4321` |
+| `true` | `https://teslacam.local:4321` or `https://<LAN_IP>:4321` |
+
+After changing `USE_HTTPS`, recreate the web container:
+
+```bash
+docker compose --env-file config.env up -d --force-recreate web
+docker logs teslacam-viewer | tail -n 20
+```
+
+You should see `[start] USE_HTTPS=true — starting with TLS` or `... plain HTTP`. Accept the self-signed certificate warning once when using HTTPS.
+
+Do not mix schemes: `https://` against an HTTP server causes this error. A hosts file line only maps the name; it does not enable TLS.
+
 ## Core runtime behavior
 
-- Web UI is HTTP by default; set `USE_HTTPS=true` to enable HTTPS mode
+- Web UI is HTTP by default; set `USE_HTTPS=true` to enable HTTPS mode (required for passkeys)
 - `host-mdns` advertises `teslacam.local` on the LAN
 - SFTP credentials and port are shown in Settings after login
 - Uploaded clips are read only by the viewer and are not modified

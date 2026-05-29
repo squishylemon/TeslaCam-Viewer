@@ -47,7 +47,7 @@ function configEnvMissingResponse(): Response {
 <h1>config.env required</h1>
 <p>Run <code>.\setup.ps1</code> (Windows) or <code>./setup.sh</code> (Linux) to create <code>config.env</code> and detect your LAN IP.</p>
 <pre style="background:#f4f4f4;padding:1rem;border-radius:8px">.\setup.ps1</pre>
-<p>Run <code>.\setup.ps1</code>, then open the <strong>https://YOUR_LAN_IP:4321</strong> URL it prints (not http).</p>
+<p>Run <code>.\setup.ps1</code> or <code>./setup.sh</code>, then open the URL it prints (http or https depending on <code>USE_HTTPS</code> in config.env).</p>
 </body></html>`,
     { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
   );

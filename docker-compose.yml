@@ -84,7 +84,7 @@ services:
       SFTP_CONFIG_DIR: /app/data/sftp
       DATABASE_URL: postgres://teslacam:teslacam@db:5432/teslacam
       BRANDING_DIR: /app/data/branding
-      USE_HTTPS: ${USE_HTTPS:-false}
+      # USE_HTTPS comes from config.env only (do not override here or HTTPS breaks)
     volumes:
       - teslacam:/data/TeslaCam
       - branding:/app/data/branding
