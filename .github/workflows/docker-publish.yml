@@ -32,8 +32,8 @@ jobs:
             dockerfile: Dockerfile
             image: teslacam-sftp-init
           - id: host-mdns
-            context: .
-            dockerfile: docker/host-mdns/Dockerfile
+            context: ./docker/host-mdns
+            dockerfile: Dockerfile
             image: teslacam-host-mdns
           - id: mdns
             context: ./docker/avahi

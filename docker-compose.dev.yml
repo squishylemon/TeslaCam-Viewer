@@ -11,9 +11,7 @@ services:
     image: teslacam-sftp:local
 
   host-mdns:
-    build:
-      context: .
-      dockerfile: docker/host-mdns/Dockerfile
+    build: ./docker/host-mdns
     image: teslacam-host-mdns:local
 
   mdns:

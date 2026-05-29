@@ -56,7 +56,6 @@ const proto = useHttps ? 'https' : 'http';
 console.log(`[host-mdns] A record: ${fqdn} -> ${lanIp}`);
 console.log(`[host-mdns] Service: _${type}._tcp port ${port}`);
 console.log(`[host-mdns] Open: ${proto}://${fqdn}:${port}/`);
-console.log('[host-mdns] Running');
 
 function shutdown() {
   clearInterval(announceTimer);
