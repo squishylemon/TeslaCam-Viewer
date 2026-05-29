@@ -92,9 +92,13 @@ function Update-ConfigEnv([string]$LanIp) {
   Set-Content -Path $config -Value $out -Encoding UTF8
 }
 
+function Sync-ComposeEnv {
+  Copy-Item -Path $config -Destination (Join-Path $root '.env') -Force
+}
+
 function Invoke-TeslacamCompose {
   param([string[]]$Args)
-  & docker compose --env-file $config @Args
+  & docker compose @Args
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -105,6 +109,7 @@ if (-not $lanIp) {
 
 Write-Host "Using LAN_IP=$lanIp"
 Update-ConfigEnv -LanIp $lanIp
+Sync-ComposeEnv
 
 if ($Dev) {
   Write-Host 'Dev mode: building images locally...'

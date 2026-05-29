@@ -96,8 +96,30 @@ update_config_env() {
   mv "$tmp" "$CONFIG"
 }
 
+sync_compose_env() {
+  cp "$CONFIG" "$ROOT/.env"
+}
+
+check_docker_access() {
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Docker permission error (cannot talk to the Docker daemon)." >&2
+  echo "" >&2
+  echo "Fix (pick one):" >&2
+  echo "  1) Add your user to the docker group, then log out and back in:" >&2
+  echo "       sudo usermod -aG docker \"\$USER\"" >&2
+  echo "  2) Run this setup with sudo (quick test only):" >&2
+  echo "       sudo ./setup.sh" >&2
+  echo "" >&2
+  echo "Also run compose from the folder that contains docker-compose.yml and config.env:" >&2
+  echo "  cp config.env .env && docker compose up -d" >&2
+  return 1
+}
+
 compose() {
-  docker compose --env-file "$CONFIG" "$@"
+  check_docker_access || exit 1
+  docker compose "$@"
 }
 
 LAN_IP="$(detect_lan_ip)"
@@ -105,13 +127,31 @@ LAN_IP="$(detect_lan_ip)"
 
 echo "Using LAN_IP=$LAN_IP"
 update_config_env "$LAN_IP"
+sync_compose_env
 
 if [ "$DEV" -eq 1 ]; then
   echo "Dev mode: building locally..."
   compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 else
   echo "Pulling images..."
-  compose pull
+  if ! compose pull; then
+    echo "" >&2
+    echo "Image pull failed (often 'permission denied' from GHCR)." >&2
+    echo "" >&2
+    echo "Check config.env image lines, for example:" >&2
+    grep -E '^[[:space:]]*TESLACAM_.*_IMAGE[[:space:]]*=' "$CONFIG" 2>/dev/null | head -n 5 >&2 || true
+    echo "" >&2
+    echo "Fix A (recommended): make packages public on GitHub:" >&2
+    echo "  github.com/squishylemon?tab=packages -> each teslacam-* package -> Package settings -> Public" >&2
+    echo "" >&2
+    echo "Fix B: log in to GHCR (private packages):" >&2
+    echo "  echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin" >&2
+    echo "  (token needs read:packages scope)" >&2
+    echo "" >&2
+    echo "Fix C: build locally instead of pull:" >&2
+    echo "  ./setup.sh --dev" >&2
+    exit 1
+  fi
   echo "Starting stack..."
   compose up -d
 fi

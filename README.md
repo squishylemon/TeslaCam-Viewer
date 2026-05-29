@@ -102,7 +102,8 @@ put -r MX_MyCar
 After changing `USE_HTTPS`, recreate the web container:
 
 ```bash
-docker compose --env-file config.env up -d --force-recreate web
+cp config.env .env   # if you edited config.env by hand
+docker compose up -d --force-recreate web
 docker logs teslacam-viewer | tail -n 20
 ```
 
@@ -184,4 +185,6 @@ This uses `docker-compose.dev.yml`.
 - Release zip docs: `deploy/README.md`
 
 For public user installs, make GHCR packages public in GitHub Packages settings.
+
+If `docker compose pull` fails with **permission denied**, the images are private or `config.env` points at the wrong GHCR path. See `deploy/README.md` (section on GHCR pull errors).
 

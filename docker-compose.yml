@@ -1,5 +1,8 @@
 # Pull pre-built images (default). Developers: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-# Image names come from config.env (see config.env.example). Publish: .github/workflows/docker-publish.yml
+#
+# Compose loads .env automatically for ${TESLACAM_*_IMAGE} substitution.
+# setup.sh / setup.ps1 copy config.env -> .env on each run (no --env-file needed).
+# Containers still read config.env via env_file below.
 
 services:
   db:
@@ -21,7 +24,7 @@ services:
     restart: unless-stopped
 
   sftp-init:
-    image: ${TESLACAM_SFTP_INIT_IMAGE:-ghcr.io/teslacam-viewer/teslacam-sftp-init:latest}
+    image: ${TESLACAM_SFTP_INIT_IMAGE:-ghcr.io/squishylemon/teslacam-sftp-init:latest}
     container_name: teslacam-sftp-init
     network_mode: host
     env_file: config.env
@@ -32,7 +35,7 @@ services:
     restart: 'no'
 
   sftp:
-    image: ${TESLACAM_SFTP_IMAGE:-ghcr.io/teslacam-viewer/teslacam-sftp:latest}
+    image: ${TESLACAM_SFTP_IMAGE:-ghcr.io/squishylemon/teslacam-sftp:latest}
     container_name: teslacam-sftp
     depends_on:
       sftp-init:
@@ -47,7 +50,7 @@ services:
     restart: unless-stopped
 
   host-mdns:
-    image: ${TESLACAM_HOST_MDNS_IMAGE:-ghcr.io/teslacam-viewer/teslacam-host-mdns:latest}
+    image: ${TESLACAM_HOST_MDNS_IMAGE:-ghcr.io/squishylemon/teslacam-host-mdns:latest}
     container_name: teslacam-host-mdns
     network_mode: host
     env_file: config.env
@@ -55,7 +58,7 @@ services:
 
   mdns:
     profiles: [avahi]
-    image: ${TESLACAM_MDNS_IMAGE:-ghcr.io/teslacam-viewer/teslacam-mdns:latest}
+    image: ${TESLACAM_MDNS_IMAGE:-ghcr.io/squishylemon/teslacam-mdns:latest}
     container_name: teslacam-mdns
     network_mode: host
     env_file: config.env
@@ -67,7 +70,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${TESLACAM_WEB_IMAGE:-ghcr.io/teslacam-viewer/teslacam-web:latest}
+    image: ${TESLACAM_WEB_IMAGE:-ghcr.io/squishylemon/teslacam-web:latest}
     container_name: teslacam-viewer
     depends_on:
       db:
