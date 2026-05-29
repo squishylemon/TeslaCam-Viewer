@@ -97,6 +97,28 @@ put -r MX_MyCar
 - SFTP credentials and port are shown in Settings after login
 - Uploaded clips are read only by the viewer and are not modified
 
+## mDNS (`teslacam.local`) on Linux
+
+`teslacam.local` is not automatic discovery like a smart TV. Devices must resolve it via mDNS or a hosts file entry.
+
+On Linux, `./setup.sh` tries host Avahi first (`MDNS_MODE=auto`):
+
+```bash
+sudo apt install avahi-utils
+./setup.sh
+```
+
+If `teslacam.local` still fails:
+
+1. Confirm `LAN_IP` in `config.env` is your real LAN address (not `docker0` or `172.17.x.x`).
+2. Check port 5353 is free: `ss -ulnp | grep 5353`
+3. If `systemd-resolved` owns mDNS, set `MDNS_MODE=host` and rerun setup, or add a hosts entry on each client:
+   `192.168.x.x teslacam.local`
+4. Allow UDP 5353 in firewall (`ufw allow 5353/udp`).
+5. Restart host publishing: `./scripts/linux-host-mdns.sh restart`
+
+The direct IP URL from setup always works: `http://<LAN_IP>:4321`.
+
 ## Configuration
 
 Generated `config.env` keys:
@@ -105,6 +127,7 @@ Generated `config.env` keys:
 - `SITE_HOSTNAME` (default `teslacam.local`)
 - `WEB_PORT` (default `4321`)
 - `USE_HTTPS` (`false` by default)
+- `MDNS_MODE` (`auto`, `host`, `container`, `off`)
 - `SESSION_SECRET`
 - `TESLACAM_*_IMAGE` image references
 

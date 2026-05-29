@@ -64,6 +64,18 @@ The setup scripts detect LAN IP, write `config.env`, pull images, and start serv
 4. Upload TeslaCam folders through SFTP to `/upload`.
 5. Refresh the viewer and select your vehicle folder if prompted.
 
+## mDNS troubleshooting (Linux)
+
+If `teslacam.local` does not resolve:
+
+```bash
+sudo apt install avahi-utils
+./setup.sh
+./scripts/linux-host-mdns.sh status
+```
+
+Use `http://<LAN_IP>:4321` if mDNS is blocked on your network. Add `MDNS_MODE=host` to `config.env` to force host Avahi publishing.
+
 ## Maintainer notes
 
 - Docker image publishing: `.github/workflows/docker-publish.yml`

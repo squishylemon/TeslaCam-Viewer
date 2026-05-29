@@ -58,7 +58,10 @@ jobs:
           cp setup.sh "$root/"
           cp install.ps1 "$root/"
           cp install.sh "$root/"
+          mkdir -p "$root/scripts"
+          cp scripts/linux-host-mdns.sh "$root/scripts/linux-host-mdns.sh"
           cp deploy/README.md "$root/README.md"
+          chmod +x "$root/scripts/linux-host-mdns.sh"
           chmod +x "$root/install.sh"
 
           sed -i "s/YOUR_GITHUB_USER/${GHCR_OWNER}/g" "$root/config.env.example"

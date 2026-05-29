@@ -31,14 +31,22 @@ rank_ip() {
   esac
 }
 
+is_docker_iface() {
+  case "$1" in
+    docker*|br-*|veth*|virbr*|podman*) return 0 ;;
+  esac
+  return 1
+}
+
 detect_lan_ip() {
-  local ip candidates=() r best_ip="" best_rank=0
+  local ip ifname candidates=() r best_ip="" best_rank=0
   if command -v ip >/dev/null 2>&1; then
     ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')"
     is_lan_ip "$ip" && candidates+=("$ip")
-    while read -r line; do
-      is_lan_ip "$line" && candidates+=("$line")
-    done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+    while read -r ifname ip; do
+      is_docker_iface "$ifname" && continue
+      is_lan_ip "$ip" && candidates+=("$ip")
+    done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}' | sed 's|/.*||')
   fi
   for ip in $(printf '%s\n' "${candidates[@]}" | sort -u); do
     r=$(rank_ip "$ip")
@@ -115,9 +123,48 @@ fi
 PROTO=http
 grep -qE '^[[:space:]]*USE_HTTPS[[:space:]]*=[[:space:]]*true' "$CONFIG" && PROTO=https
 
+configure_linux_mdns() {
+  [ "$(uname -s)" = "Linux" ] || return 0
+
+  local mode
+  mode="$(grep -E '^[[:space:]]*MDNS_MODE[[:space:]]*=' "$CONFIG" 2>/dev/null | head -n1 | cut -d= -f2- | tr -d '[:space:]')"
+  mode="${mode:-auto}"
+
+  if [ "$mode" = "off" ]; then
+    compose stop host-mdns >/dev/null 2>&1 || true
+    bash "$ROOT/scripts/linux-host-mdns.sh" stop >/dev/null 2>&1 || true
+    echo "[mdns] Disabled (MDNS_MODE=off)"
+    return 0
+  fi
+
+  if [ "$mode" = "host" ] || { [ "$mode" = "auto" ] && command -v avahi-publish >/dev/null 2>&1; }; then
+    compose stop host-mdns >/dev/null 2>&1 || true
+    if bash "$ROOT/scripts/linux-host-mdns.sh" start; then
+      echo "[mdns] Using host Avahi (recommended on Linux)"
+      return 0
+    fi
+    echo "[mdns] Host Avahi failed, falling back to container host-mdns"
+    compose up -d host-mdns
+    return 0
+  fi
+
+  echo "[mdns] Using container host-mdns"
+  echo "[mdns] If teslacam.local does not resolve, install avahi-utils and rerun setup"
+}
+
+configure_linux_mdns
+
+HOSTNAME=teslacam.local
+if grep -qE '^[[:space:]]*SITE_HOSTNAME[[:space:]]*=' "$CONFIG"; then
+  HOSTNAME=$(grep -E '^[[:space:]]*SITE_HOSTNAME[[:space:]]*=' "$CONFIG" | head -n1 | cut -d= -f2- | tr -d '[:space:]')
+fi
+
 echo ""
 echo "=== Open the site ==="
-echo "  ${PROTO}://teslacam.local:${PORT}"
+echo "  ${PROTO}://${HOSTNAME}:${PORT}"
 echo "  ${PROTO}://${LAN_IP}:${PORT}"
+echo ""
+echo "If ${HOSTNAME} does not resolve, add this line to /etc/hosts on the client device:"
+echo "  ${LAN_IP} ${HOSTNAME}"
 echo ""
 echo "Developers: ./setup.sh --dev"
