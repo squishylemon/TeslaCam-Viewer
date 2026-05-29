@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+COPY docker/web/scripts ./scripts
 RUN npm run build
 
 # --- Runtime stage ---
@@ -20,9 +21,7 @@ ENV TESLACAM_DIR=/data/TeslaCam
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
-COPY scripts/ensure-tls.mjs ./scripts/ensure-tls.mjs
-COPY scripts/start.mjs ./scripts/start.mjs
-COPY scripts/load-config-env.mjs ./scripts/load-config-env.mjs
+COPY --from=build /app/scripts ./scripts
 
 EXPOSE 4321
 CMD ["node", "scripts/start.mjs", "./dist/server/entry.mjs"]
