@@ -17,23 +17,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Resolve version
-        id: ver
+      - name: Resolve release tag
+        id: rel
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            raw="manual-${GITHUB_SHA::7}"
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             raw="${GITHUB_REF#refs/tags/}"
+            needs_auto_tag=false
+            should_release=true
+          elif [[ "$GITHUB_REF" == refs/heads/main || "$GITHUB_REF" == refs/heads/master ]]; then
+            branch="${GITHUB_REF#refs/heads/}"
+            raw="auto-${branch}-$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+            needs_auto_tag=true
+            should_release=true
           else
-            raw="${GITHUB_REF#refs/heads/}"
+            raw="manual-${GITHUB_SHA::7}"
+            needs_auto_tag=false
+            should_release=false
           fi
           safe="$(echo "$raw" | tr '/ ' '-' | tr -cd '[:alnum:]._-')"
           echo "tag=${safe}" >> "$GITHUB_OUTPUT"
+          echo "needs_auto_tag=${needs_auto_tag}" >> "$GITHUB_OUTPUT"
+          echo "should_release=${should_release}" >> "$GITHUB_OUTPUT"
 
       - name: Build deploy zip
         env:
-          VERSION: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.rel.outputs.tag }}
           GHCR_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
@@ -55,16 +66,27 @@ jobs:
           echo "ZIP_NAME=${zip_name}" >> "$GITHUB_ENV"
           ls -la "$zip_name"
 
+      - name: Create auto tag
+        if: steps.rel.outputs.needs_auto_tag == 'true'
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
+
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.rel.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          name: TeslaCam Viewer ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: TeslaCam Viewer ${{ steps.rel.outputs.tag }}
+          prerelease: ${{ steps.rel.outputs.needs_auto_tag == 'true' }}
           generate_release_notes: true
           files: ${{ env.ZIP_NAME }}
 
       - name: Upload zip artifact (non-tag runs)
-        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
+        if: steps.rel.outputs.should_release != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: teslacam-viewer-deploy-bundle
