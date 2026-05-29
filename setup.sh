@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Auto-detect LAN IP, write config.env, start Docker stack.
+# Auto-detect LAN IP, write config.env, pull images, start stack.
 set -euo pipefail
+
+DEV=0
+[[ "${1:-}" == "--dev" ]] && DEV=1
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -29,23 +32,14 @@ rank_ip() {
 }
 
 detect_lan_ip() {
-  local ip candidates=() c r best_ip="" best_rank=0
-
+  local ip candidates=() r best_ip="" best_rank=0
   if command -v ip >/dev/null 2>&1; then
     ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')"
     is_lan_ip "$ip" && candidates+=("$ip")
-
     while read -r line; do
       is_lan_ip "$line" && candidates+=("$line")
     done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
   fi
-
-  if command -v hostname >/dev/null 2>&1; then
-    for ip in $(hostname -I 2>/dev/null); do
-      is_lan_ip "$ip" && candidates+=("$ip")
-    done
-  fi
-
   for ip in $(printf '%s\n' "${candidates[@]}" | sort -u); do
     r=$(rank_ip "$ip")
     if [ "$r" -gt "$best_rank" ]; then
@@ -53,7 +47,6 @@ detect_lan_ip() {
       best_ip=$ip
     fi
   done
-
   echo "$best_ip"
 }
 
@@ -67,14 +60,9 @@ new_session_secret() {
 
 update_config_env() {
   local lan_ip="$1"
-  local tmp secret line has_lan=0 has_secret=0
-
-  if [ ! -f "$EXAMPLE" ]; then
-    echo "config.env.example is missing." >&2
-    exit 1
-  fi
+  local tmp has_lan=0 has_secret=0 has_https=0
+  [ -f "$EXAMPLE" ] || { echo "config.env.example missing" >&2; exit 1; }
   [ -f "$CONFIG" ] || cp "$EXAMPLE" "$CONFIG"
-
   tmp="$(mktemp)"
   while IFS= read -r line || [ -n "$line" ]; do
     if [[ "$line" =~ ^[[:space:]]*LAN_IP[[:space:]]*= ]]; then
@@ -90,58 +78,46 @@ update_config_env() {
       fi
       has_secret=1
     else
+      [[ "$line" =~ ^[[:space:]]*USE_HTTPS[[:space:]]*= ]] && has_https=1
       echo "$line"
     fi
   done < "$CONFIG" > "$tmp"
-
   [ "$has_lan" -eq 1 ] || echo "LAN_IP=$lan_ip" >> "$tmp"
   [ "$has_secret" -eq 1 ] || echo "SESSION_SECRET=$(new_session_secret)" >> "$tmp"
-  if ! grep -qE '^[[:space:]]*USE_HTTPS[[:space:]]*=' "$tmp"; then
-    echo "USE_HTTPS=false" >> "$tmp"
-  fi
+  [ "$has_https" -eq 1 ] || echo "USE_HTTPS=false" >> "$tmp"
   mv "$tmp" "$CONFIG"
 }
 
-start_host_mdns() {
-  local pid_file="$ROOT/.host-mdns.pid"
-  if [ -f "$pid_file" ]; then
-  old=$(cat "$pid_file" 2>/dev/null || true)
-    [ -n "$old" ] && kill "$old" 2>/dev/null || true
-  fi
-  if [ ! -d "$ROOT/node_modules/bonjour-service" ]; then
-    echo "Installing dependencies for host mDNS..."
-    npm install --omit=dev
-  fi
-  nohup node "$ROOT/scripts/host-mdns.mjs" > "$ROOT/host-mdns.log" 2>&1 &
-  echo $! > "$pid_file"
-  echo "Host mDNS started (PID $(cat "$pid_file"))"
+compose() {
+  docker compose --env-file "$CONFIG" "$@"
 }
 
 LAN_IP="$(detect_lan_ip)"
-if [ -z "$LAN_IP" ]; then
-  echo "Could not detect a LAN IPv4 address. Set LAN_IP manually in config.env." >&2
-  exit 1
-fi
+[ -n "$LAN_IP" ] || { echo "Could not detect LAN IP" >&2; exit 1; }
 
 echo "Using LAN_IP=$LAN_IP"
 update_config_env "$LAN_IP"
 
-echo "Starting containers (docker compose up -d --build)..."
-docker compose up -d --build
-
-start_host_mdns
-
-PORT=4321
-if [ -f "$CONFIG" ] && grep -qE '^[[:space:]]*WEB_PORT[[:space:]]*=' "$CONFIG"; then
-  PORT=$(grep -E '^[[:space:]]*WEB_PORT[[:space:]]*=' "$CONFIG" | head -n1 | cut -d= -f2 | tr -d '[:space:]')
+if [ "$DEV" -eq 1 ]; then
+  echo "Dev mode: building locally..."
+  compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+else
+  echo "Pulling images..."
+  compose pull
+  echo "Starting stack..."
+  compose up -d
 fi
 
+PORT=4321
+if grep -qE '^[[:space:]]*WEB_PORT[[:space:]]*=' "$CONFIG"; then
+  PORT=$(grep -E '^[[:space:]]*WEB_PORT[[:space:]]*=' "$CONFIG" | head -n1 | cut -d= -f2 | tr -d '[:space:]')
+fi
 PROTO=http
 grep -qE '^[[:space:]]*USE_HTTPS[[:space:]]*=[[:space:]]*true' "$CONFIG" && PROTO=https
 
 echo ""
-echo "=== Open the site (like Home Assistant) ==="
+echo "=== Open the site ==="
 echo "  ${PROTO}://teslacam.local:${PORT}"
 echo "  ${PROTO}://${LAN_IP}:${PORT}"
 echo ""
-echo "Passkeys: set USE_HTTPS=true in config.env, then: docker compose up -d --force-recreate web"
+echo "Developers: ./setup.sh --dev"

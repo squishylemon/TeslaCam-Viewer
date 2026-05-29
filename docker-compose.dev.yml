@@ -1,0 +1,25 @@
+# Build images locally instead of pulling from GHCR.
+# Usage: docker compose --env-file config.env -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+services:
+  sftp-init:
+    build: ./docker/sftp-init
+    image: teslacam-sftp-init:local
+
+  sftp:
+    build: ./docker/sftp
+    image: teslacam-sftp:local
+
+  host-mdns:
+    build:
+      context: .
+      dockerfile: docker/host-mdns/Dockerfile
+    image: teslacam-host-mdns:local
+
+  mdns:
+    build: ./docker/avahi
+    image: teslacam-mdns:local
+
+  web:
+    build: .
+    image: teslacam-web:local

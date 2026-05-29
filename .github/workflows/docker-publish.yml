@@ -1,0 +1,67 @@
+name: Publish Docker images
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - id: web
+            context: .
+            dockerfile: Dockerfile
+            image: teslacam-web
+          - id: sftp
+            context: ./docker/sftp
+            dockerfile: Dockerfile
+            image: teslacam-sftp
+          - id: sftp-init
+            context: ./docker/sftp-init
+            dockerfile: Dockerfile
+            image: teslacam-sftp-init
+          - id: host-mdns
+            context: .
+            dockerfile: docker/host-mdns/Dockerfile
+            image: teslacam-host-mdns
+          - id: mdns
+            context: ./docker/avahi
+            dockerfile: Dockerfile
+            image: teslacam-mdns
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

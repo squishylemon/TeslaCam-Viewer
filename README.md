@@ -58,30 +58,46 @@ Legacy single-car layout also works (`SavedClips` / `SentryClips` directly under
 
 ## Run with Docker (recommended)
 
+**End users (pre-built images):** only need `docker-compose.yml`, `config.env`, and `setup.ps1` / `setup.sh`.
 
-
-```bash
-
-docker compose up --build
-
+```powershell
+copy config.env.example config.env
+# Edit YOUR_GITHUB_USER in the TESLACAM_*_IMAGE lines (who published the images)
+.\setup.ps1
 ```
 
-
-
-- **Viewer:** <http://localhost:4321>
-- **SFTP:** server LAN IP, random port, 20-character password (generated on first boot)
-
-Sign in as `admin` / `admin`, complete security setup, then open **Settings → Upload clips (SFTP)** for connection details and **Connect with SFTP app**.
-
-### Production environment
-
 ```bash
-SESSION_SECRET=...
-WEBAUTHN_RP_ID=your.server.example
-WEBAUTHN_ORIGIN=https://your.server.example
+cp config.env.example config.env
+./setup.sh
 ```
 
-Open the SFTP port shown in Settings in your firewall. Credentials are stored in the Docker `sftpconfig` volume and stay the same across restarts.
+Setup detects your LAN IP, pulls images from GHCR, and starts the stack. Open `http://teslacam.local:4321` (or the IP URL it prints).
+
+- **Viewer:** port `4321` (HTTP by default; set `USE_HTTPS=true` for passkeys)
+- **SFTP:** random port + password (see Settings after login)
+- **mDNS:** `host-mdns` container advertises `teslacam.local` on the LAN
+
+Default login: `admin` / `admin`
+
+### Publish images (maintainers)
+
+GitHub Actions (`.github/workflows/docker-publish.yml`) builds and pushes to:
+
+`ghcr.io/<your-github-username>/teslacam-web:latest` (+ `teslacam-sftp`, `teslacam-sftp-init`, `teslacam-host-mdns`, `teslacam-mdns`)
+
+After the first workflow run, set each package to **Public** on github.com → Packages.
+
+### Develop from source
+
+```bash
+./setup.sh --dev
+```
+
+```powershell
+.\setup.ps1 -Dev
+```
+
+This builds locally using `docker-compose.dev.yml` instead of pulling images.
 
 ## Upload footage
 

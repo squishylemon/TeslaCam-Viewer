@@ -1,4 +1,6 @@
-# Requires config.env (copy from config.env.example and set LAN_IP).
+# Pull pre-built images (default). Developers: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Image names come from config.env (see config.env.example). Publish: .github/workflows/docker-publish.yml
+
 services:
   db:
     image: postgres:16-alpine
@@ -19,7 +21,7 @@ services:
     restart: unless-stopped
 
   sftp-init:
-    build: ./docker/sftp-init
+    image: ${TESLACAM_SFTP_INIT_IMAGE:-ghcr.io/teslacam-viewer/teslacam-sftp-init:latest}
     container_name: teslacam-sftp-init
     network_mode: host
     env_file: config.env
@@ -30,7 +32,7 @@ services:
     restart: 'no'
 
   sftp:
-    build: ./docker/sftp
+    image: ${TESLACAM_SFTP_IMAGE:-ghcr.io/teslacam-viewer/teslacam-sftp:latest}
     container_name: teslacam-sftp
     depends_on:
       sftp-init:
@@ -44,10 +46,16 @@ services:
       - teslacam:/home/teslacam/upload
     restart: unless-stopped
 
-  # Optional Linux-only Avahi (Windows/Mac use host-mdns from setup.ps1 / setup.sh instead).
+  host-mdns:
+    image: ${TESLACAM_HOST_MDNS_IMAGE:-ghcr.io/teslacam-viewer/teslacam-host-mdns:latest}
+    container_name: teslacam-host-mdns
+    network_mode: host
+    env_file: config.env
+    restart: unless-stopped
+
   mdns:
     profiles: [avahi]
-    build: ./docker/avahi
+    image: ${TESLACAM_MDNS_IMAGE:-ghcr.io/teslacam-viewer/teslacam-mdns:latest}
     container_name: teslacam-mdns
     network_mode: host
     env_file: config.env
@@ -59,7 +67,7 @@ services:
     restart: unless-stopped
 
   web:
-    build: .
+    image: ${TESLACAM_WEB_IMAGE:-ghcr.io/teslacam-viewer/teslacam-web:latest}
     container_name: teslacam-viewer
     depends_on:
       db:
