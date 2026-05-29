@@ -25,19 +25,19 @@ jobs:
             image: teslacam-web
           - id: sftp
             context: ./docker/sftp
-            dockerfile: Dockerfile
+            dockerfile: docker/sftp/Dockerfile
             image: teslacam-sftp
           - id: sftp-init
             context: ./docker/sftp-init
-            dockerfile: Dockerfile
+            dockerfile: docker/sftp-init/Dockerfile
             image: teslacam-sftp-init
           - id: host-mdns
             context: ./docker/host-mdns
-            dockerfile: Dockerfile
+            dockerfile: docker/host-mdns/Dockerfile
             image: teslacam-host-mdns
           - id: mdns
             context: ./docker/avahi
-            dockerfile: Dockerfile
+            dockerfile: docker/avahi/Dockerfile
             image: teslacam-mdns
     steps:
       - uses: actions/checkout@v4
