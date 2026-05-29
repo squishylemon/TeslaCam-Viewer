@@ -22,10 +22,14 @@ jobs:
         id: ver
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=manual-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            raw="manual-${GITHUB_SHA::7}"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            raw="${GITHUB_REF#refs/tags/}"
           else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            raw="${GITHUB_REF#refs/heads/}"
           fi
+          safe="$(echo "$raw" | tr '/ ' '-' | tr -cd '[:alnum:]._-')"
+          echo "tag=${safe}" >> "$GITHUB_OUTPUT"
 
       - name: Build deploy zip
         env:
@@ -59,8 +63,8 @@ jobs:
           generate_release_notes: true
           files: ${{ env.ZIP_NAME }}
 
-      - name: Upload zip (manual workflow test)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload zip artifact (non-tag runs)
+        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: teslacam-viewer-deploy-bundle
