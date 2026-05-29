@@ -10,6 +10,8 @@ The release zip is built by `.github/workflows/release.yml` and includes only:
 - `config.env.example`
 - `setup.ps1`
 - `setup.sh`
+- `install.ps1`
+- `install.sh`
 - `README.md` (copied from this file)
 
 ## Requirements
@@ -25,16 +27,18 @@ Replace `squishylemon/TeslaCam-Viewer` if you are using a fork.
 Windows PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$repo='squishylemon/TeslaCam-Viewer'; $api='https://api.github.com/repos/'+$repo+'/releases/latest'; $asset=(Invoke-RestMethod -Headers @{ 'User-Agent'='teslacam-installer' } $api).assets | Where-Object { $_.name -like 'teslacam-viewer-*.zip' } | Select-Object -First 1; Invoke-WebRequest -Headers @{ 'User-Agent'='teslacam-installer' } -Uri $asset.browser_download_url -OutFile teslacam.zip; Remove-Item -Recurse -Force teslacam-release -ErrorAction SilentlyContinue; Expand-Archive -Path teslacam.zip -DestinationPath teslacam-release -Force; Set-Location teslacam-release; .\setup.ps1"
+irm https://raw.githubusercontent.com/squishylemon/TeslaCam-Viewer/main/install.ps1 | iex
 ```
 
-Linux:
+Linux (`curl`, `jq`, `unzip` required):
 
 ```bash
-repo='squishylemon/TeslaCam-Viewer'; url="$(curl -fsSL -H 'User-Agent: teslacam-installer' "https://api.github.com/repos/$repo/releases/latest" | jq -r '.assets[] | select(.name|test("^teslacam-viewer-.*\\.zip$")) | .browser_download_url' | head -n1)"; curl -fL "$url" -o teslacam.zip && rm -rf teslacam-release && mkdir -p teslacam-release && unzip -oq teslacam.zip -d teslacam-release && cd teslacam-release && chmod +x setup.sh && ./setup.sh
+curl -fsSL https://raw.githubusercontent.com/squishylemon/TeslaCam-Viewer/main/install.sh | bash
 ```
 
-Note for Linux one-liner: it expects `curl`, `jq`, and `unzip`.
+These scripts list releases (not `/releases/latest`) so prerelease zips from `main` still work.
+
+If you already have this folder extracted, run `.\setup.ps1` or `./setup.sh` directly.
 
 ## Manual install
 

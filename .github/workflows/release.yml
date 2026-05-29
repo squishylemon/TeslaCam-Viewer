@@ -56,7 +56,10 @@ jobs:
           cp config.env.example "$root/"
           cp setup.ps1 "$root/"
           cp setup.sh "$root/"
+          cp install.ps1 "$root/"
+          cp install.sh "$root/"
           cp deploy/README.md "$root/README.md"
+          chmod +x "$root/install.sh"
 
           sed -i "s/YOUR_GITHUB_USER/${GHCR_OWNER}/g" "$root/config.env.example"
           chmod +x "$root/setup.sh"

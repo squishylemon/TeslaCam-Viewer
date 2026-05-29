@@ -19,21 +19,23 @@ TeslaCam Viewer is a self hosted web app for browsing Tesla dashcam clips and pl
 
 ## Quick install from Releases
 
-If you only want to run the app, use the release bundle.
+Use the install scripts. They download the newest release zip, including prereleases (main branch auto releases are prereleases, so `/releases/latest` often returns 404).
+
+Replace `squishylemon/TeslaCam-Viewer` if you use a fork.
 
 Windows PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$repo='squishylemon/TeslaCam-Viewer'; $api='https://api.github.com/repos/'+$repo+'/releases/latest'; $asset=(Invoke-RestMethod -Headers @{ 'User-Agent'='teslacam-installer' } $api).assets | Where-Object { $_.name -like 'teslacam-viewer-*.zip' } | Select-Object -First 1; Invoke-WebRequest -Headers @{ 'User-Agent'='teslacam-installer' } -Uri $asset.browser_download_url -OutFile teslacam.zip; Remove-Item -Recurse -Force teslacam-release -ErrorAction SilentlyContinue; Expand-Archive -Path teslacam.zip -DestinationPath teslacam-release -Force; Set-Location teslacam-release; .\setup.ps1"
+irm https://raw.githubusercontent.com/squishylemon/TeslaCam-Viewer/main/install.ps1 | iex
 ```
 
-Linux:
+Linux (needs `curl`, `jq`, `unzip`):
 
 ```bash
-repo='squishylemon/TeslaCam-Viewer'; url="$(curl -fsSL -H 'User-Agent: teslacam-installer' "https://api.github.com/repos/$repo/releases/latest" | jq -r '.assets[] | select(.name|test("^teslacam-viewer-.*\\.zip$")) | .browser_download_url' | head -n1)"; curl -fL "$url" -o teslacam.zip && rm -rf teslacam-release && mkdir -p teslacam-release && unzip -oq teslacam.zip -d teslacam-release && cd teslacam-release && chmod +x setup.sh && ./setup.sh
+curl -fsSL https://raw.githubusercontent.com/squishylemon/TeslaCam-Viewer/main/install.sh | bash
 ```
 
-Note: the Linux command expects `curl`, `jq`, and `unzip`.
+If you already downloaded a release zip, extract it and run `.\setup.ps1` or `./setup.sh`.
 
 ## Manual install from source bundle
 
