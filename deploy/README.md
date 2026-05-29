@@ -1,6 +1,8 @@
 # Deploy bundle (minimal install)
 
-Zip these files from the repo root for end users:
+Download **`teslacam-viewer-v*.zip`** from the repo’s **Releases** page (created automatically when you push a `v*` tag, e.g. `v1.0.0`).
+
+Or zip these files from the repo root for end users:
 
 | File | Purpose |
 |------|---------|
