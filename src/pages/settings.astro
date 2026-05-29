@@ -1,0 +1,5 @@
+---
+/** Settings live on the homepage overlay; keep this URL working. */
+const target = new URL('/?settings=1', Astro.url);
+return Astro.redirect(target.pathname + target.search);
+---

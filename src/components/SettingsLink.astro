@@ -1,0 +1,34 @@
+---
+import SettingsGearIcon from './SettingsGearIcon.astro';
+
+interface Props {
+  active?: boolean;
+  /** Use overlay toggle on homepage instead of navigation. */
+  overlay?: boolean;
+}
+const { active = false, overlay = false } = Astro.props;
+---
+
+{
+  overlay ? (
+    <button
+      type="button"
+      class:list={['icon-btn', 'settings-btn', { 'is-active': active }]}
+      id="btn-open-settings"
+      aria-label="Settings"
+      title="Settings"
+      aria-expanded={active ? 'true' : 'false'}
+      aria-controls="settings-overlay"
+    >
+      <SettingsGearIcon />
+    </button>
+  ) : active ? (
+    <span class="icon-btn settings-btn is-active" aria-current="page" title="Settings">
+      <SettingsGearIcon />
+    </span>
+  ) : (
+    <a class="icon-btn settings-btn" href="/?settings=1" aria-label="Settings" title="Settings">
+      <SettingsGearIcon />
+    </a>
+  )
+}

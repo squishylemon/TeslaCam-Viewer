@@ -1,0 +1,164 @@
+---
+import { getSiteHostname } from '../lib/site-hostname';
+
+interface Props {
+  title?: string;
+  /** Active vehicle folder id for API prefetch (empty = legacy root). */
+  vehicleId?: string;
+}
+const { title = 'TeslaCam Viewer', vehicleId = '' } = Astro.props;
+const siteHostname = getSiteHostname();
+---
+
+<!doctype html>
+<html lang="en" data-vehicle-id={vehicleId} data-site-hostname={siteHostname}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <script is:inline>
+      (function () {
+        var KEY = 'tc-theme';
+        var pref = localStorage.getItem(KEY) || 'system';
+        if (pref !== 'system' && pref !== 'dark' && pref !== 'light') pref = 'system';
+        var resolved =
+          pref === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+            : pref;
+        var r = document.documentElement;
+        r.dataset.themePreference = pref;
+        r.dataset.theme = resolved;
+        r.style.colorScheme = resolved;
+      })();
+    </script>
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<script>
+  import '../scripts/theme.ts';
+</script>
+
+<style is:global>
+  :root,
+  [data-theme='dark'] {
+    --bg: #09090b;
+    --bg-elev: #101012;
+    --bg-card: #151517;
+    --border: #232327;
+    --text: #fafafa;
+    --text-dim: #8a8a91;
+    --accent: #e82127;
+    --accent-dim: #b71a1f;
+    --radius: 14px;
+    --shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+    --border-strong: rgba(255, 255, 255, 0.22);
+    --surface-hover: rgba(255, 255, 255, 0.05);
+    --chip-bg: rgba(255, 255, 255, 0.08);
+    --scrollbar-thumb: #2a2a30;
+    --scrollbar-thumb-hover: #3a3a42;
+  }
+
+  [data-theme='light'] {
+    --bg: #ececee;
+    --bg-elev: #f8f8f9;
+    --bg-card: #ffffff;
+    --border: #b8b8c3;
+    --text: #18181b;
+    --text-dim: #5f5f6b;
+    --accent: #e82127;
+    --accent-dim: #b71a1f;
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+    --border-strong: #8b8b9a;
+    --surface-hover: rgba(0, 0, 0, 0.06);
+    --chip-bg: rgba(0, 0, 0, 0.07);
+    --scrollbar-thumb: #b8b8c3;
+    --scrollbar-thumb-hover: #8b8b9a;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family:
+      'Inter',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    flex-shrink: 0;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+  .icon-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+  a.icon-btn:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .icon-btn.is-active {
+    color: var(--text);
+    border-color: var(--border-strong);
+    background: var(--bg-card);
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+</style>

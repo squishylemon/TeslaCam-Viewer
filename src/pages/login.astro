@@ -1,0 +1,596 @@
+---
+
+import Layout from '../layouts/Layout.astro';
+import BrandMark from '../components/BrandMark.astro';
+import { getSiteAccessInfo } from '../lib/site-hostname';
+
+export const prerender = false;
+const siteAccess = getSiteAccessInfo();
+---
+
+
+
+<Layout title="Sign in · TeslaCam Viewer">
+
+  <main class="auth-page">
+
+    <div class="auth-card">
+
+      <div class="auth-brand">
+
+        <BrandMark />
+
+      </div>
+
+      <p class="auth-sub">Sign in to browse your clips.</p>
+
+
+
+      <p id="login-error" class="auth-error" hidden></p>
+      <p id="webauthn-unavailable-hint" class="auth-warn" hidden></p>
+
+      <div id="login-credentials-panel">
+
+        <button type="button" class="auth-passkey-btn" id="btn-passkey-login">
+
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+
+            <path
+
+              d="M12 2a5 5 0 0 1 5 5v2h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v2h6V7a3 3 0 0 0-3-3z"
+
+            />
+
+          </svg>
+
+          Sign in with passkey
+
+        </button>
+
+        <p id="passkey-login-status" class="auth-passkey-status" />
+
+
+
+        <div class="auth-divider" aria-hidden="true">
+
+          <span>or sign in with account</span>
+
+        </div>
+
+
+
+        <form id="login-form" class="auth-form">
+
+          <label class="auth-field">
+
+            <span>Username</span>
+
+            <input
+
+              type="text"
+
+              name="username"
+
+              id="username"
+
+              autocomplete="username"
+
+              required
+
+              autofocus
+
+            />
+
+          </label>
+
+          <label class="auth-field" id="password-field">
+
+            <span>Password</span>
+
+            <input
+
+              type="password"
+
+              name="password"
+
+              id="password"
+
+              autocomplete="current-password"
+
+              required
+
+            />
+
+          </label>
+
+          <button type="submit" class="auth-submit auth-submit--secondary" id="login-submit">
+
+            Sign in
+
+          </button>
+
+        </form>
+
+      </div>
+
+
+
+      <div id="login-totp-panel" hidden>
+
+        <p class="auth-step-title">Authenticator code</p>
+
+        <p class="auth-step-sub">Enter the 6-digit code from your authenticator app.</p>
+
+        <form id="totp-form" class="auth-form">
+
+          <label class="auth-field">
+
+            <span>Code</span>
+
+            <input
+
+              type="text"
+
+              name="totp"
+
+              id="totp-code"
+
+              inputmode="numeric"
+
+              autocomplete="one-time-code"
+
+              maxlength="8"
+
+              placeholder="6-digit code"
+
+              required
+
+            />
+
+          </label>
+
+          <button type="submit" class="auth-submit auth-submit--secondary" id="totp-submit">
+
+            Sign in
+
+          </button>
+
+        </form>
+
+        <button type="button" class="auth-back-link" id="btn-back-credentials">Back</button>
+
+      </div>
+
+
+
+      <div id="login-passkey-panel" hidden>
+
+        <p class="auth-step-title">Confirm with passkey</p>
+
+        <p class="auth-step-sub" id="passkey-step-status">Use the passkey for this account…</p>
+
+        <button type="button" class="auth-passkey-btn" id="btn-passkey-step-retry">
+
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+
+            <path
+
+              d="M12 2a5 5 0 0 1 5 5v2h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5zm0 2a3 3 0 0 0-3 3v2h6V7a3 3 0 0 0-3-3z"
+
+            />
+
+          </svg>
+
+          Use passkey
+
+        </button>
+
+        <button type="button" class="auth-back-link" id="btn-back-credentials-passkey">Back</button>
+
+      </div>
+
+
+
+      <p class="auth-hint">
+
+        <strong>Sign in with passkey</strong> skips username and password. Otherwise enter your
+
+        account details first — you may then be asked for a passkey or authenticator code. If you
+
+        open this site on a new address (e.g. LAN IP), register your passkey again in Settings.
+        Open <strong><a href={siteAccess.siteUrl}>{siteAccess.siteUrl}</a></strong> (same as Home Assistant).
+        Or by IP: <a href={siteAccess.directUrl}>{siteAccess.directUrl}</a>.
+
+      </p>
+
+    </div>
+
+  </main>
+
+</Layout>
+
+
+
+<script>
+
+  import '../scripts/login-page.ts';
+
+</script>
+
+
+
+<style>
+
+  .auth-page {
+
+    min-height: 100vh;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    padding: 2rem 1.25rem;
+
+  }
+
+  .auth-card {
+
+    width: 100%;
+
+    max-width: 400px;
+
+    background: var(--bg-card);
+
+    border: 1px solid var(--border);
+
+    border-radius: var(--radius);
+
+    padding: 1.75rem 1.5rem;
+
+    box-shadow: var(--shadow);
+
+  }
+
+  .auth-brand {
+
+    display: flex;
+
+    justify-content: center;
+
+    margin-bottom: 0.5rem;
+
+  }
+
+  .auth-sub {
+
+    color: var(--text-dim);
+
+    font-size: 0.9rem;
+
+    margin-bottom: 1.25rem;
+
+    text-align: center;
+
+  }
+
+  .auth-form {
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 0.85rem;
+
+  }
+
+  .auth-field {
+
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 0.3rem;
+
+  }
+
+  .auth-field span {
+
+    font-size: 0.72rem;
+
+    font-weight: 600;
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.05em;
+
+    color: var(--text-dim);
+
+  }
+
+  .auth-field input {
+
+    background: var(--bg-elev);
+
+    border: 1px solid var(--border);
+
+    border-radius: 10px;
+
+    padding: 0.55rem 0.65rem;
+
+    color: var(--text);
+
+    font: inherit;
+
+    font-size: 0.95rem;
+
+  }
+
+  .auth-field input:focus {
+
+    outline: none;
+
+    border-color: var(--border-strong);
+
+  }
+
+  .auth-error {
+
+    color: var(--accent);
+
+    font-size: 0.85rem;
+
+    margin: 0 0 0.75rem;
+
+    text-align: center;
+
+  }
+
+  .auth-warn {
+
+    color: #fbbf24;
+
+    font-size: 0.82rem;
+
+    margin: 0 0 0.75rem;
+
+    text-align: center;
+
+    line-height: 1.45;
+
+  }
+
+  .auth-step-title {
+
+    font-weight: 700;
+
+    font-size: 1rem;
+
+    text-align: center;
+
+    margin: 0 0 0.35rem;
+
+  }
+
+  .auth-step-sub {
+
+    color: var(--text-dim);
+
+    font-size: 0.85rem;
+
+    text-align: center;
+
+    margin: 0 0 1rem;
+
+  }
+
+  .auth-submit {
+
+    margin-top: 0.25rem;
+
+    border: 0;
+
+    border-radius: 10px;
+
+    padding: 0.6rem 1rem;
+
+    background: var(--accent);
+
+    color: #fff;
+
+    font-weight: 700;
+
+    font-size: 0.95rem;
+
+    cursor: pointer;
+
+    width: 100%;
+
+  }
+
+  .auth-submit--secondary {
+
+    background: var(--bg-elev);
+
+    color: var(--text);
+
+    border: 1px solid var(--border);
+
+  }
+
+  .auth-submit--secondary:hover {
+
+    border-color: var(--border-strong);
+
+  }
+
+  .auth-submit:disabled {
+
+    opacity: 0.6;
+
+    cursor: not-allowed;
+
+  }
+
+  .auth-back-link {
+
+    display: block;
+
+    width: 100%;
+
+    margin-top: 0.75rem;
+
+    border: 0;
+
+    background: none;
+
+    color: var(--text-dim);
+
+    font-size: 0.85rem;
+
+    cursor: pointer;
+
+    text-decoration: underline;
+
+    text-underline-offset: 2px;
+
+  }
+
+  .auth-back-link:hover {
+
+    color: var(--text);
+
+  }
+
+  .auth-divider {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 0.75rem;
+
+    margin: 1rem 0;
+
+    color: var(--text-dim);
+
+    font-size: 0.78rem;
+
+    font-weight: 600;
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.06em;
+
+  }
+
+  .auth-divider::before,
+
+  .auth-divider::after {
+
+    content: '';
+
+    flex: 1;
+
+    height: 1px;
+
+    background: var(--border);
+
+  }
+
+  .auth-passkey-btn {
+
+    width: 100%;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 0.5rem;
+
+    border: 1px solid var(--border);
+
+    border-radius: 10px;
+
+    padding: 0.6rem 1rem;
+
+    background: var(--bg-elev);
+
+    color: var(--text);
+
+    font-weight: 600;
+
+    font-size: 0.92rem;
+
+    cursor: pointer;
+
+  }
+
+  .auth-passkey-btn svg {
+
+    width: 18px;
+
+    height: 18px;
+
+    fill: #60a5fa;
+
+    flex-shrink: 0;
+
+  }
+
+  .auth-passkey-btn:hover {
+
+    border-color: var(--border-strong);
+
+    background: var(--bg-card);
+
+  }
+
+  .auth-passkey-btn:disabled {
+
+    opacity: 0.6;
+
+    cursor: not-allowed;
+
+  }
+
+  .auth-passkey-status {
+
+    min-height: 1rem;
+
+    margin: 0.35rem 0 0;
+
+    font-size: 0.78rem;
+
+    color: var(--text-dim);
+
+    text-align: center;
+
+  }
+
+  .auth-hint {
+
+    margin-top: 1.25rem;
+
+    font-size: 0.78rem;
+
+    color: var(--text-dim);
+
+    line-height: 1.45;
+
+  }
+
+  .auth-hint strong {
+
+    color: var(--text);
+
+    font-weight: 600;
+
+  }
+
+</style>
+
+

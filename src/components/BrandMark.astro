@@ -1,0 +1,81 @@
+---
+import { hasCustomLogo, logoPublicUrl } from '../lib/branding';
+
+interface Props {
+  size?: 'sm' | 'md';
+}
+const { size = 'md' } = Astro.props;
+const customUrl = hasCustomLogo() ? logoPublicUrl() : null;
+---
+
+<div class:list={['brand-mark', size]}>
+  {
+    customUrl ? (
+      <img
+        class="brand-mark-img"
+        src={customUrl}
+        alt="TeslaCam Viewer"
+        width={size === 'sm' ? 28 : 36}
+        height={size === 'sm' ? 28 : 36}
+      />
+    ) : (
+      <span class="brand-mark-fallback" aria-hidden="true">
+        <svg viewBox="0 0 32 32">
+          <rect width="32" height="32" rx="8" fill="#09090b" />
+          <rect x="4" y="4" width="11" height="8" rx="2" fill="#e82127" />
+          <rect x="17" y="4" width="11" height="8" rx="2" fill="#232327" />
+          <rect x="4" y="14" width="11" height="8" rx="2" fill="#232327" />
+          <rect x="17" y="14" width="11" height="8" rx="2" fill="#232327" />
+        </svg>
+      </span>
+    )
+  }
+  <span class="brand-mark-text">
+    <span class="brand-mark-title">TESLACAM</span>
+    {size === 'md' && <span class="brand-mark-sub">Viewer</span>}
+  </span>
+</div>
+
+<style>
+  .brand-mark {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-shrink: 0;
+  }
+  .brand-mark-img {
+    object-fit: contain;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .brand-mark-fallback svg {
+    display: block;
+    width: 36px;
+    height: 36px;
+  }
+  .brand-mark.sm .brand-mark-fallback svg {
+    width: 28px;
+    height: 28px;
+  }
+  .brand-mark-text {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+  }
+  .brand-mark-title {
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-size: 1rem;
+  }
+  .brand-mark.sm .brand-mark-title {
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+  }
+  .brand-mark-sub {
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+</style>

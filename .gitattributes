@@ -1,0 +1,3 @@
+*.sh text eol=lf
+docker/sftp-init/* text eol=lf
+docker/sftp/* text eol=lf

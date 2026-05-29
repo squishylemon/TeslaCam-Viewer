@@ -1,0 +1,330 @@
+---
+import Layout from '../layouts/Layout.astro';
+export const prerender = false;
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+---
+
+<Layout title="Security setup · TeslaCam Viewer">
+  <main
+    class="setup-page"
+    id="setup-security"
+    data-must-change-password={String(user.mustChangePassword)}
+    data-force-mfa={String(user.forceMfa)}
+    data-has-passkey={String(user.hasPasskey)}
+    data-has-totp={String(user.hasTotp)}
+  >
+    <header class="setup-head">
+      <h1>Secure your account</h1>
+      <p>
+        Signed in as <strong>{user.username}</strong>. Complete these steps before using
+        the viewer.
+      </p>
+    </header>
+
+    <section class="setup-step" id="step-password" hidden={!user.mustChangePassword}>
+      <h2>1. Change password</h2>
+      <p class="step-note">The default <code>admin</code> password must be replaced.</p>
+      <form id="password-form" class="step-form">
+        {
+          !user.mustChangePassword && (
+            <label class="step-field">
+              <span>Current password</span>
+              <input type="password" id="current-password" autocomplete="current-password" />
+            </label>
+          )
+        }
+        <label class="step-field">
+          <span>New password</span>
+          <input
+            type="password"
+            id="new-password"
+            autocomplete="new-password"
+            minlength={8}
+            required
+          />
+        </label>
+        <label class="step-field">
+          <span>Confirm new password</span>
+          <input
+            type="password"
+            id="confirm-password"
+            autocomplete="new-password"
+            minlength={8}
+            required
+          />
+        </label>
+        <p id="password-error" class="step-error" hidden></p>
+        <button type="submit" class="step-btn">Update password</button>
+      </form>
+      <p id="password-done" class="step-ok" hidden>Password updated.</p>
+    </section>
+
+    <section
+      class="setup-step"
+      id="step-mfa"
+      hidden={user.mustChangePassword || !user.forceMfa}
+    >
+      <h2>2. Add a second factor</h2>
+      <p class="step-note">
+        <strong>Passkey is recommended</strong> — faster and more secure than an authenticator
+        app. Your account requires at least one method.
+      </p>
+
+      <div class="mfa-tabs" role="tablist" aria-label="Second factor method">
+        <button
+          type="button"
+          class="mfa-tab active"
+          role="tab"
+          id="tab-passkey"
+          aria-selected="true"
+          aria-controls="panel-passkey"
+        >
+          Passkey
+          <span class="mfa-tab-badge">Recommended</span>
+        </button>
+        <button
+          type="button"
+          class="mfa-tab"
+          role="tab"
+          id="tab-totp"
+          aria-selected="false"
+          aria-controls="panel-totp"
+        >
+          Authenticator app
+        </button>
+      </div>
+
+      <div
+        class="mfa-panel active"
+        id="panel-passkey"
+        role="tabpanel"
+        aria-labelledby="tab-passkey"
+      >
+        <p>Use Face ID, Touch ID, Windows Hello, or a security key tied to this device.</p>
+        <button type="button" class="step-btn" id="btn-passkey">Register passkey</button>
+        <p id="passkey-status" class="step-muted"></p>
+      </div>
+
+      <div
+        class="mfa-panel"
+        id="panel-totp"
+        role="tabpanel"
+        aria-labelledby="tab-totp"
+        hidden
+      >
+        <p class="step-muted totp-alt-note">
+          Use this if passkeys are not available on your device.
+        </p>
+        <div id="totp-panel" class="totp-panel">
+          <p id="totp-loading" class="step-muted">Generating QR code…</p>
+          <img id="totp-qr" alt="Authenticator QR code" width="220" height="220" hidden />
+          <p class="step-muted">Or enter this secret manually:</p>
+          <code id="totp-secret" class="totp-secret"></code>
+          <label class="step-field">
+            <span>6-digit code</span>
+            <input
+              type="text"
+              id="totp-code"
+              inputmode="numeric"
+              pattern="[0-9]{6}"
+              maxlength={6}
+              autocomplete="one-time-code"
+            />
+          </label>
+          <button type="button" class="step-btn" id="btn-totp-enable">
+            Verify & enable
+          </button>
+        </div>
+        <p id="totp-status" class="step-muted"></p>
+      </div>
+
+      <p id="mfa-error" class="step-error" hidden></p>
+    </section>
+
+    <footer class="setup-foot">
+      <button type="button" class="step-btn" id="btn-continue" disabled>
+        Continue to clips
+      </button>
+      <p class="step-muted">Available after password change and MFA setup.</p>
+    </footer>
+  </main>
+</Layout>
+
+<script>
+  import '../scripts/setup-security.ts';
+</script>
+
+<style>
+  .setup-page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 3rem;
+  }
+  .setup-head h1 {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin-bottom: 0.35rem;
+  }
+  .setup-head p {
+    color: var(--text-dim);
+    font-size: 0.92rem;
+  }
+  .setup-step {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+  .setup-step h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+  }
+  .step-note {
+    color: var(--text-dim);
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+  }
+  .step-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 360px;
+  }
+  .step-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+  }
+  .step-field span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .step-field input {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.6rem;
+    color: var(--text);
+    font: inherit;
+  }
+  .step-btn {
+    border: 0;
+    border-radius: 10px;
+    padding: 0.55rem 1rem;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.88rem;
+    width: fit-content;
+  }
+  .step-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .step-btn-secondary {
+    background: var(--bg-elev);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .step-error {
+    color: var(--accent);
+    font-size: 0.85rem;
+  }
+  .step-ok {
+    color: #22c55e;
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .step-muted {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+  }
+  .mfa-tabs {
+    display: flex;
+    gap: 0.3rem;
+    padding: 0.25rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 1rem;
+  }
+  .mfa-tab {
+    flex: 1;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.5rem 0.65rem;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .mfa-tab.active {
+    background: var(--bg-card);
+    color: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  .mfa-tab-badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: rgba(232, 33, 39, 0.12);
+    border: 1px solid rgba(232, 33, 39, 0.35);
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+  }
+  .mfa-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    padding: 1rem 1.1rem;
+  }
+  .mfa-panel p {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 0.75rem;
+  }
+  .mfa-panel[hidden] {
+    display: none;
+  }
+  .totp-alt-note {
+    margin-bottom: 0.65rem !important;
+  }
+  .totp-panel {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .totp-secret {
+    font-size: 0.75rem;
+    word-break: break-all;
+    background: var(--bg-elev);
+    padding: 0.35rem 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .setup-foot {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+</style>

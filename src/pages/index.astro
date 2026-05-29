@@ -1,0 +1,925 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BrandMark from '../components/BrandMark.astro';
+import SettingsLink from '../components/SettingsLink.astro';
+import SettingsOverlay from '../components/SettingsOverlay.astro';
+import { hasCustomLogo, logoPublicUrl } from '../lib/branding';
+import { getSftpConnectionInfo } from '../lib/sftp-info';
+import { getSiteAccessInfo } from '../lib/site-hostname';
+import { effectiveTeslacamDir, validateTeslacamDir } from '../lib/site-config';
+import {
+  readVehicleCookie,
+  resolveActiveVehicle,
+  setVehicleCookie,
+} from '../lib/vehicle-context';
+import { listEvents, type TeslaEvent } from '../lib/teslacam';
+import { listVehicles } from '../lib/vehicles';
+
+export const prerender = false;
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+
+const logoUrl = hasCustomLogo() ? logoPublicUrl() : null;
+const libraryPath = effectiveTeslacamDir();
+const libraryCheck = validateTeslacamDir(libraryPath);
+const sftpInfo = getSftpConnectionInfo();
+const siteAccess = getSiteAccessInfo();
+const vehicles = listVehicles(libraryPath);
+const queryVehicle = Astro.url.searchParams.get('vehicle');
+
+if (queryVehicle !== null) {
+  const picked = resolveActiveVehicle(vehicles, queryVehicle, null);
+  if (picked?.id) setVehicleCookie(Astro.cookies, picked.id);
+}
+
+const activeVehicle = resolveActiveVehicle(
+  vehicles,
+  queryVehicle,
+  readVehicleCookie(Astro.cookies),
+);
+
+if (vehicles.length > 1 && !activeVehicle) {
+  return Astro.redirect('/vehicles');
+}
+
+const vehicleId = activeVehicle?.id ?? '';
+const showVehicleSwitcher = vehicles.length > 1;
+
+const openSettings =
+  Astro.url.searchParams.get('settings') === '1' ||
+  Astro.url.searchParams.get('settings') === 'open';
+
+const saved = listEvents('SavedClips', vehicleId);
+const sentry = listEvents('SentryClips', vehicleId);
+
+function apiVehicleQuery(): string {
+  return vehicleId ? `&vehicle=${encodeURIComponent(vehicleId)}` : '';
+}
+
+function formatDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function prettyReason(reason: string): string {
+  if (!reason) return '';
+  return reason.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+interface MonthGroup {
+  label: string;
+  events: TeslaEvent[];
+}
+
+function groupByMonth(events: TeslaEvent[]): MonthGroup[] {
+  const map = new Map<string, MonthGroup>();
+  for (const ev of events) {
+    const d = new Date(ev.timestamp);
+    const key = Number.isNaN(d.getTime())
+      ? 'Unknown'
+      : `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
+    const label = Number.isNaN(d.getTime())
+      ? 'Unknown date'
+      : d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    let grp = map.get(key);
+    if (!grp) {
+      grp = { label, events: [] };
+      map.set(key, grp);
+    }
+    grp.events.push(ev);
+  }
+  return [...map.values()];
+}
+
+const allEvents = [...saved, ...sentry];
+const locations = [
+  ...new Set(allEvents.map((e) => e.city.trim()).filter(Boolean)),
+].sort((a, b) => a.localeCompare(b));
+
+const groups = [
+  { key: 'SavedClips', label: 'Saved', events: saved, months: groupByMonth(saved) },
+  {
+    key: 'SentryClips',
+    label: 'Sentry',
+    events: sentry,
+    months: groupByMonth(sentry),
+  },
+];
+---
+
+<Layout title="TeslaCam Viewer" vehicleId={vehicleId}>
+  <header class="topbar">
+    <div class="topbar-left">
+      <BrandMark />
+      {
+        showVehicleSwitcher && activeVehicle && (
+          <a class="vehicle-chip" href="/vehicles" title="Switch vehicle">
+            <span class="vehicle-chip-label">{activeVehicle.label}</span>
+            <span class="vehicle-chip-name">{activeVehicle.name}</span>
+          </a>
+        )
+      }
+
+      <div class="topbar-tools">
+        <label class="search-wrap">
+          <span class="sr-only">Search clips</span>
+          <svg class="search-ic" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"
+            />
+          </svg>
+          <input
+            type="search"
+            id="search-q"
+            class="topbar-search"
+            placeholder="Search…"
+            autocomplete="off"
+          />
+        </label>
+
+        <div class="filter-menu">
+          <button
+            type="button"
+            class="filter-btn"
+            id="filter-toggle"
+            aria-label="Filter clips"
+            aria-expanded="false"
+            aria-controls="filter-popover"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 6h16v2H4V6zm3 5h10v2H7v-2zm4 5h2v2h-2v-2z"
+              />
+            </svg>
+          </button>
+          <div
+            class="filter-popover"
+            id="filter-popover"
+            role="dialog"
+            aria-label="Clip filters"
+            hidden
+          >
+            <div class="popover-fields">
+              <label class="popover-field">
+                <span>From</span>
+                <input type="date" id="date-from" />
+              </label>
+              <label class="popover-field">
+                <span>To</span>
+                <input type="date" id="date-to" />
+              </label>
+              <label class="popover-field">
+                <span>Location</span>
+                <select id="filter-location" size={5}>
+                  <option value="">All</option>
+                  {locations.map((city) => <option value={city}>{city}</option>)}
+                </select>
+              </label>
+            </div>
+            <button type="button" class="popover-clear" id="clear-filters">
+              Clear filters
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button
+        class="tab active"
+        data-tab="SavedClips"
+        role="tab"
+        aria-selected="true"
+      >
+        <svg class="tab-ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
+        </svg>
+        <span class="tab-label">Saved</span>
+        <span class="count">{saved.length}</span>
+      </button>
+      <button
+        class="tab"
+        data-tab="SentryClips"
+        role="tab"
+        aria-selected="false"
+      >
+        <svg class="tab-ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z" />
+        </svg>
+        <span class="tab-label">Sentry</span>
+        <span class="count">{sentry.length}</span>
+      </button>
+    </div>
+
+    <div class="topbar-right">
+      <p class="topbar-result" id="filters-result" aria-live="polite"></p>
+      <SettingsLink overlay active={openSettings} />
+    </div>
+  </header>
+
+  <main class="container">
+    {
+      groups.map((g) => (
+        <section
+          class="panel"
+          data-panel={g.key}
+          hidden={g.key !== 'SavedClips'}
+        >
+          {g.events.length === 0 ? (
+            <div class="empty">
+              <p>No {g.label.toLowerCase()} clips found.</p>
+              <p class="hint">
+                Looking inside{' '}
+                <code>
+                  {vehicleId
+                    ? `${vehicleId}/${g.key}`
+                    : `../TeslaCam/${g.key}`}
+                </code>
+                . Upload clips via SFTP (Settings) or choose another vehicle.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div class="filter-empty" hidden>
+                <p>No clips match your filters.</p>
+                <p class="hint">Try clearing search or widening the date range.</p>
+              </div>
+              <div class="search-view" hidden>
+                <p class="search-label">Search results (best match first)</p>
+                <div class="grid search-grid"></div>
+              </div>
+              <div class="months-view">
+                {
+                  g.months.map((m) => (
+                    <div class="month">
+                      <div class="month-head">
+                        <h2>{m.label}</h2>
+                        <span class="month-count">{m.events.length}</span>
+                      </div>
+                      <div class="grid">
+                        {m.events.map((ev) => {
+                          const segCount = ev.groups.length;
+                          const firstCams = ev.groups[0]?.cams ?? {};
+                          const reasonPretty = prettyReason(ev.reason);
+                          return (
+                            <a
+                              class="card"
+                              href={`/clip/${ev.type}/${ev.id}`}
+                              aria-label={`Open clip from ${formatDay(ev.timestamp)}`}
+                              data-type={ev.type}
+                              data-id={ev.id}
+                              data-timestamp={ev.timestamp}
+                              data-city={ev.city}
+                              data-street={ev.street}
+                              data-reason={ev.reason}
+                              data-reason-pretty={reasonPretty}
+                              data-segments={segCount}
+                              data-prefetch-type={ev.type}
+                              data-prefetch-id={ev.id}
+                              data-prefetch-cams={JSON.stringify(firstCams)}
+                            >
+                        <div class="thumb">
+                          {ev.hasThumb ? (
+                            <img
+                              loading="lazy"
+                              src={`/api/thumb?type=${ev.type}&event=${ev.id}${apiVehicleQuery()}`}
+                              alt=""
+                            />
+                          ) : (
+                            <div class="thumb-fallback">No thumbnail</div>
+                          )}
+                          <span class="play">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
+                          </span>
+                          <span class="badge">{segCount} seg</span>
+                        </div>
+                        <div class="meta">
+                          <div class="meta-top">
+                            <span class="date">{formatDay(ev.timestamp)}</span>
+                            <span class="time">{formatTime(ev.timestamp)}</span>
+                          </div>
+                          <div class="row">
+                            {ev.city && <span class="city">{ev.city}</span>}
+                            {ev.reason && (
+                              <span class="reason">
+                                {prettyReason(ev.reason)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </>
+          )}
+        </section>
+      ))
+    }
+  </main>
+
+  <SettingsOverlay
+    user={user}
+    logoUrl={logoUrl}
+    sftp={sftpInfo}
+    siteAccess={siteAccess}
+    libraryValid={libraryCheck.valid}
+    librarySavedCount={libraryCheck.savedCount ?? 0}
+    librarySentryCount={libraryCheck.sentryCount ?? 0}
+    libraryVehicleCount={libraryCheck.vehicleCount ?? vehicles.length}
+    initialOpen={openSettings}
+  />
+</Layout>
+
+<script>
+  import '../scripts/index-page.ts';
+</script>
+
+<style>
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    min-height: 60px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
+    align-items: center;
+    gap: 0.75rem 1rem;
+    padding: 0.45rem 1.25rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    overflow: visible;
+  }
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
+    overflow: visible;
+  }
+  .vehicle-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    font-size: 0.72rem;
+    line-height: 1.2;
+    max-width: 9rem;
+    transition:
+      border-color 0.15s,
+      background 0.15s;
+  }
+  .vehicle-chip:hover,
+  .vehicle-chip:focus-visible {
+    border-color: var(--border-strong);
+    background: var(--bg-card);
+    outline: none;
+  }
+  .vehicle-chip-label {
+    color: var(--accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.65rem;
+  }
+  .vehicle-chip-name {
+    color: var(--text);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    flex: 1;
+    max-width: 280px;
+    overflow: visible;
+  }
+  .search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 0.55rem 0 0.45rem;
+    height: 32px;
+  }
+  .search-wrap:focus-within {
+    border-color: var(--border-strong);
+  }
+  .search-ic {
+    width: 14px;
+    height: 14px;
+    fill: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .topbar-search {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0;
+    outline: none;
+  }
+  .topbar-search::placeholder {
+    color: var(--text-dim);
+  }
+  .topbar-search::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    height: 12px;
+    width: 12px;
+    background: var(--text-dim);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    cursor: pointer;
+  }
+
+  .filter-menu {
+    position: relative;
+    flex-shrink: 0;
+    overflow: visible;
+  }
+  .filter-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    padding: 0;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+  .filter-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+  }
+  .filter-btn:hover,
+  .filter-btn[aria-expanded='true'] {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .filter-btn.filter-active {
+    color: var(--accent);
+    border-color: rgba(232, 33, 39, 0.45);
+    background: rgba(232, 33, 39, 0.1);
+  }
+  .filter-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    z-index: 30;
+    color-scheme: dark;
+    width: 252px;
+    max-width: calc(100vw - 1.5rem);
+    padding: 0.7rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    box-sizing: border-box;
+  }
+  .filter-popover[hidden] {
+    display: none;
+  }
+  .popover-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .popover-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+    min-width: 0;
+  }
+  .popover-field span {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .popover-field input,
+  .popover-field select {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+  .popover-field input {
+    padding: 0.4rem 0.5rem;
+    min-height: 2rem;
+  }
+  .popover-field input[type='date'] {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+  .popover-field select {
+    padding: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .popover-field select option {
+    padding: 0.35rem 0.5rem;
+  }
+  .popover-field input:focus,
+  .popover-field select:focus {
+    outline: none;
+    border-color: var(--border-strong);
+  }
+  .popover-clear {
+    width: 100%;
+    margin-top: 0.5rem;
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem;
+    border-radius: 6px;
+  }
+  .popover-clear:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+  }
+
+  .topbar-right {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+  .topbar-result {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    white-space: nowrap;
+    text-align: right;
+    max-width: 11rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---- Prominent segmented tabs ---- */
+  .tabs {
+    display: flex;
+    gap: 0.3rem;
+    background: var(--bg-elev);
+    padding: 0.3rem;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+  }
+  .tab {
+    border: 0;
+    background: transparent;
+    color: var(--text-dim);
+    padding: 0.6rem 1.25rem;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.98rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .tab:hover {
+    color: var(--text);
+  }
+  .tab-ic {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+  }
+  .count {
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: var(--chip-bg);
+    color: inherit;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    min-width: 1.6rem;
+    text-align: center;
+  }
+  .tab.active {
+    color: #fff;
+  }
+  .tab[data-tab='SavedClips'].active {
+    background: var(--accent);
+  }
+  .tab[data-tab='SentryClips'].active {
+    background: #2f6fd0;
+  }
+  .tab.active .count {
+    background: rgba(0, 0, 0, 0.28);
+  }
+
+  .container {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 1.5rem 1.75rem 3rem;
+  }
+
+  .search-view {
+    margin-bottom: 1.5rem;
+  }
+  .search-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin: 0 0 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .filter-empty {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-dim);
+  }
+
+  /* ---- Month sections ---- */
+  .month + .month {
+    margin-top: 2.25rem;
+  }
+  .month-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin: 0 0 1rem;
+    position: sticky;
+    top: 68px;
+    z-index: 5;
+    padding: 0.7rem 0;
+    background: var(--bg);
+  }
+  /* Solid block that fills the area between the top bar and this header so
+     no cards peek through while it is stuck. */
+  .month-head::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 1.5rem;
+    background: var(--bg);
+  }
+  .month-head h2 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .month-count {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.1rem;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition:
+      transform 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow);
+  }
+  .thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #000;
+  }
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+  .play {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 54px;
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    opacity: 0;
+    transform: scale(0.85);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+  }
+  .play svg {
+    width: 26px;
+    height: 26px;
+    fill: #fff;
+    margin-left: 3px;
+  }
+  .card:hover .play {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .badge {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.18rem 0.5rem;
+    border-radius: 6px;
+  }
+  .meta {
+    padding: 0.7rem 0.85rem 0.85rem;
+  }
+  .meta-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .date {
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
+  .time {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.55rem;
+  }
+  .city,
+  .reason {
+    font-size: 0.72rem;
+    padding: 0.14rem 0.5rem;
+    border-radius: 999px;
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .reason {
+    color: #ff6b6f;
+    border-color: rgba(232, 33, 39, 0.35);
+    background: rgba(232, 33, 39, 0.08);
+  }
+  .empty {
+    text-align: center;
+    padding: 4rem 1rem;
+    color: var(--text-dim);
+  }
+  .hint {
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+  }
+  code {
+    background: var(--bg-elev);
+    padding: 0.1rem 0.35rem;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 900px) {
+    .topbar {
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+    }
+    .topbar-left {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+    .topbar-tools {
+      max-width: none;
+      flex: 1;
+    }
+    .tabs {
+      grid-column: 1;
+      justify-self: center;
+    }
+    .topbar-right {
+      grid-column: 2;
+      align-self: center;
+    }
+    .topbar-result {
+      max-width: 8rem;
+    }
+    :global(.brand-mark-sub) {
+      display: none;
+    }
+  }
+  @media (max-width: 640px) {
+    .topbar {
+      padding: 0.4rem 0.75rem;
+    }
+    .tab {
+      padding: 0.5rem 0.85rem;
+      font-size: 0.88rem;
+    }
+    .month-head {
+      top: auto;
+      position: relative;
+    }
+    .container {
+      padding: 1rem 1rem 2.5rem;
+    }
+  }
+</style>

@@ -1,0 +1,29 @@
+{
+  "name": "teslacam-viewer",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Astro viewer for TeslaCam Saved & Sentry clips with a synced 4-camera player.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "start": "node ./dist/server/entry.mjs",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.1.3",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.1",
+    "astro": "^5.5.4",
+    "bonjour-service": "^1.4.0",
+    "multicast-dns": "^7.2.5",
+    "otplib": "^13.4.0",
+    "pg": "^8.21.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "@types/qrcode": "^1.5.6"
+  }
+}

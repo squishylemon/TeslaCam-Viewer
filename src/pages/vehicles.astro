@@ -1,0 +1,175 @@
+---
+import Layout from '../layouts/Layout.astro';
+import BrandMark from '../components/BrandMark.astro';
+import VehicleSilhouette from '../components/VehicleSilhouette.astro';
+import { effectiveTeslacamDir, validateTeslacamDir } from '../lib/site-config';
+import { listVehicles, type ModelCode } from '../lib/vehicles';
+
+export const prerender = false;
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login');
+}
+
+const libraryPath = effectiveTeslacamDir();
+const libraryCheck = validateTeslacamDir(libraryPath);
+const vehicles = listVehicles(libraryPath);
+
+if (vehicles.length <= 1) {
+  const only = vehicles[0];
+  const target = only?.id
+    ? `/?vehicle=${encodeURIComponent(only.id)}`
+    : '/';
+  return Astro.redirect(target);
+}
+---
+
+<Layout title="Choose vehicle · TeslaCam">
+  <header class="vehicles-topbar">
+    <BrandMark />
+  </header>
+
+  <main class="vehicles-page">
+    <div class="vehicles-intro">
+      <h1>Choose a vehicle</h1>
+      <p class="vehicles-lead">
+        Select which Tesla’s dashcam folder to browse. Each car uses a folder like{' '}
+        <code>MX_Name</code>, <code>MY_Name</code>, <code>MS_Name</code>, or{' '}
+        <code>M3_Name</code> with <code>SavedClips</code> and <code>SentryClips</code>{' '}
+        inside.
+      </p>
+      {!libraryCheck.valid && (
+        <p class="vehicles-warn" role="status">
+          Library path issue: {libraryCheck.error}
+        </p>
+      )}
+    </div>
+
+    <div class="vehicles-grid" role="list">
+      {
+        vehicles.map((v) => {
+          const href = `/?vehicle=${encodeURIComponent(v.id)}`;
+          const total = v.savedCount + v.sentryCount;
+          return (
+            <a class="vehicle-card" href={href} role="listitem">
+              {v.model && <VehicleSilhouette model={v.model as ModelCode} />}
+              <div class="vehicle-card-body">
+                <p class="vehicle-card-model">{v.label}</p>
+                <h2 class="vehicle-card-name">{v.name}</h2>
+                <p class="vehicle-card-meta">
+                  {total === 0
+                    ? 'No clips yet'
+                    : `${v.savedCount} saved · ${v.sentryCount} sentry`}
+                </p>
+                <p class="vehicle-card-folder">
+                  <code>{v.id}</code>
+                </p>
+              </div>
+            </a>
+          );
+        })
+      }
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .vehicles-topbar {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+  }
+  .vehicles-page {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 3rem;
+  }
+  .vehicles-intro {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .vehicles-intro h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.75rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+  .vehicles-lead {
+    margin: 0 auto;
+    max-width: 36rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+    font-size: 0.95rem;
+  }
+  .vehicles-lead code {
+    font-size: 0.85em;
+  }
+  .vehicles-warn {
+    margin: 1rem auto 0;
+    max-width: 32rem;
+    padding: 0.65rem 1rem;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn, #e8a317) 18%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--warn, #e8a317) 40%, var(--border));
+    font-size: 0.9rem;
+  }
+  .vehicles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.25rem;
+  }
+  .vehicle-card {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    overflow: hidden;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s,
+      transform 0.15s;
+  }
+  .vehicle-card:hover,
+  .vehicle-card:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--accent) 12%, transparent);
+    transform: translateY(-2px);
+    outline: none;
+  }
+  .vehicle-card-body {
+    padding: 1rem 1.1rem 1.15rem;
+  }
+  .vehicle-card-model {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+  }
+  .vehicle-card-name {
+    margin: 0.25rem 0 0.35rem;
+    font-size: 1.2rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+  .vehicle-card-meta {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-dim);
+  }
+  .vehicle-card-folder {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+  .vehicle-card-folder code {
+    font-size: 0.95em;
+  }
+</style>

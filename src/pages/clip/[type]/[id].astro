@@ -1,0 +1,813 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import SettingsLink from '../../../components/SettingsLink.astro';
+import {
+  readVehicleCookie,
+  resolveActiveVehicle,
+} from '../../../lib/vehicle-context';
+import {
+  CLIP_TYPES,
+  getEvent,
+  mapsUrl,
+  type ClipType,
+} from '../../../lib/teslacam';
+import { listVehicles } from '../../../lib/vehicles';
+
+export const prerender = false;
+
+const { type, id } = Astro.params;
+
+if (!type || !(CLIP_TYPES as readonly string[]).includes(type) || !id) {
+  return Astro.redirect('/');
+}
+
+const vehicles = listVehicles();
+const activeVehicle = resolveActiveVehicle(
+  vehicles,
+  Astro.url.searchParams.get('vehicle'),
+  readVehicleCookie(Astro.cookies),
+);
+
+if (vehicles.length > 1 && !activeVehicle) {
+  return Astro.redirect('/vehicles');
+}
+
+const vehicleId = activeVehicle?.id ?? '';
+const event = getEvent(type as ClipType, id, vehicleId);
+if (!event) {
+  return Astro.redirect('/');
+}
+
+const homeHref = vehicleId ? `/?vehicle=${encodeURIComponent(vehicleId)}` : '/';
+
+const clipData = {
+  type: event.type,
+  id: event.id,
+  eventTime: event.eventTime,
+  groups: event.groups,
+};
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function prettyReason(reason: string): string {
+  if (!reason) return '';
+  return reason.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const CAM_NAMES = ['Front', 'Fisheye / Front', 'Left Pillar', 'Right Pillar', 'Left Repeater', 'Right Repeater', 'Back'];
+function cameraName(idx: string): string {
+  const n = Number.parseInt(idx, 10);
+  if (!Number.isFinite(n)) return idx;
+  return CAM_NAMES[n] ? `${CAM_NAMES[n]} (cam ${n})` : `Camera ${n}`;
+}
+
+const mapHref = mapsUrl(event.lat, event.lon);
+const lat = Number.parseFloat(event.lat);
+const lon = Number.parseFloat(event.lon);
+const mapEmbed = mapHref ? `https://maps.google.com/maps?q=${lat},${lon}&z=16&output=embed` : null;
+const camCount = new Set(event.groups.flatMap((g) => Object.keys(g.cams))).size;
+
+const details: { label: string; value: string }[] = [
+  { label: 'Type', value: event.type === 'SavedClips' ? 'Saved Clip' : 'Sentry Clip' },
+  { label: event.eventTime ? 'Event time' : 'Recorded', value: formatDate(event.timestamp) },
+  ...(event.reason ? [{ label: 'Reason', value: prettyReason(event.reason) }] : []),
+  ...(event.camera ? [{ label: 'Triggered camera', value: cameraName(event.camera) }] : []),
+  ...(event.city ? [{ label: 'City', value: event.city }] : []),
+  ...(event.street ? [{ label: 'Street', value: event.street }] : []),
+  ...(mapHref ? [{ label: 'Coordinates', value: `${lat}, ${lon}` }] : []),
+  { label: 'Segments', value: `${event.groups.length}` },
+  { label: 'Cameras', value: `${camCount}` },
+];
+---
+
+<Layout title={`TeslaCam · ${event.id}`} vehicleId={vehicleId}>
+  <header class="topbar">
+    <a class="back" href={homeHref}>&larr; All clips</a>
+    <div class="title">
+      <span class="kind" data-kind={event.type}>
+        {event.type === 'SavedClips' ? 'Saved' : 'Sentry'}
+      </span>
+      <span class="when">{formatDate(event.timestamp)}</span>
+      {event.city && <span class="city">{event.city}</span>}
+    </div>
+    <div class="topbar-end">
+      <SettingsLink />
+    </div>
+  </header>
+
+  <main
+    id="player"
+    class="player"
+    data-clip={JSON.stringify(clipData)}
+    data-loading="false"
+    data-playing="false"
+    data-muted="true"
+    data-fullscreen="false"
+  >
+    <div class="stage">
+      <div class="grid" id="grid">
+        <div class="cam cam-front" data-cam="front">
+          <video
+            id="cam-front"
+            muted
+            autoplay
+            playsinline
+            preload="auto"
+            disablepictureinpicture></video>
+          <span class="cam-label">Front</span>
+          <button class="cam-focus" data-focus-target="front" title="Focus">⤢</button>
+          <div class="cam-empty">No signal</div>
+        </div>
+        <div class="cam cam-back" data-cam="back">
+          <video
+            id="cam-back"
+            muted
+            autoplay
+            playsinline
+            preload="auto"
+            disablepictureinpicture></video>
+          <span class="cam-label">Back</span>
+          <button class="cam-focus" data-focus-target="back" title="Focus">⤢</button>
+          <div class="cam-empty">No signal</div>
+        </div>
+        <div class="cam cam-right" data-cam="right">
+          <video
+            id="cam-right"
+            muted
+            autoplay
+            playsinline
+            preload="auto"
+            disablepictureinpicture></video>
+          <span class="cam-label">Right</span>
+          <button class="cam-focus" data-focus-target="right" title="Focus">⤢</button>
+          <div class="cam-empty">No signal</div>
+        </div>
+        <div class="cam cam-left" data-cam="left">
+          <video
+            id="cam-left"
+            muted
+            autoplay
+            playsinline
+            preload="auto"
+            disablepictureinpicture></video>
+          <span class="cam-label">Left</span>
+          <button class="cam-focus" data-focus-target="left" title="Focus">⤢</button>
+          <div class="cam-empty">No signal</div>
+        </div>
+      </div>
+      <div class="overlay" id="overlay" hidden>
+        <div class="spinner"></div>
+        <div class="overlay-text" id="overlay-text"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="track" id="track">
+        <div class="track-line">
+          <div class="buffered" id="buffered"></div>
+          <div class="progress" id="progress"></div>
+        </div>
+        <div class="markers" id="markers"></div>
+        <div class="handle" id="handle"></div>
+      </div>
+
+      <div class="bar">
+        <div class="left">
+          <button id="btn-play" class="ctrl" title="Play / Pause (Space / K)">
+            <svg class="ic ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            <svg class="ic ic-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+          </button>
+          <button id="btn-prev" class="ctrl" title="Previous segment (P)">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M6 6h2.2v12H6zm3.2 6 9 6V6z" /></svg>
+          </button>
+          <button id="btn-back10" class="ctrl ctrl-seek" title="Back 10s (J / ←)">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" transform="translate(24,0) scale(-1,1)" /></svg>
+            <span class="ic-num">10</span>
+          </button>
+          <button id="btn-fwd10" class="ctrl ctrl-seek" title="Forward 10s (L / →)">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" /></svg>
+            <span class="ic-num">10</span>
+          </button>
+          <button id="btn-next" class="ctrl" title="Next segment (N)">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M15.8 6H18v12h-2.2zM6 6v12l9-6z" /></svg>
+          </button>
+          <button id="btn-rewind" class="ctrl" title="Hold to rewind">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6zm.5-6 8.5 6V6z" /></svg>
+          </button>
+          <button id="btn-event" class="ctrl ctrl-event" title="Skip to event (E)" hidden>
+            <span class="event-dot"></span>
+            <span class="event-label">Event</span>
+          </button>
+          <span class="time">
+            <span id="time-current">0:00</span> / <span id="time-total">0:00</span>
+          </span>
+        </div>
+
+        <div class="right">
+          <button id="btn-rate" class="ctrl ctrl-text" title="Playback speed">1×</button>
+          <button id="btn-mute" class="ctrl" title="Mute / Unmute (M)">
+            <svg class="ic ic-vol" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" /></svg>
+            <svg class="ic ic-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73zM12 4 9.91 6.09 12 8.18z" /></svg>
+          </button>
+          <button id="btn-fs" class="ctrl" title="Fullscreen (F)">
+            <svg class="ic ic-fs" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z" /></svg>
+            <svg class="ic ic-fs-exit" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z" /></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <section class="details">
+    <h2 class="details-title">Clip details</h2>
+    <div class="details-body">
+      <dl class="info">
+        {
+          details.map((d) => (
+            <div class="info-row">
+              <dt>{d.label}</dt>
+              <dd>{d.value}</dd>
+            </div>
+          ))
+        }
+      </dl>
+      {
+        mapEmbed ? (
+          <div class="map-wrap">
+            <iframe
+              class="map-frame"
+              src={mapEmbed}
+              title="Clip location"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+              allowfullscreen
+            />
+            <a
+              class="map-open"
+              href={mapHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in Google Maps &rarr;
+            </a>
+          </div>
+        ) : (
+          <div class="map-wrap map-empty">No location data for this clip.</div>
+        )
+      }
+    </div>
+  </section>
+</Layout>
+
+<script src="../../../scripts/player.ts"></script>
+
+<style>
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.45rem 1.1rem;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+  }
+  .back {
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .back:hover {
+    color: var(--text);
+  }
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+  }
+  .kind {
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+  }
+  .kind[data-kind='SentryClips'] {
+    background: #2b6cb0;
+  }
+  .when {
+    font-weight: 600;
+  }
+  .city {
+    color: var(--text-dim);
+  }
+  .topbar-end {
+    margin-left: auto;
+  }
+
+  :global(body) {
+    overflow-x: hidden;
+  }
+  .topbar {
+    height: 50px;
+  }
+  .player {
+    --player-fg: #fafafa;
+    --player-track-bg: rgba(255, 255, 255, 0.22);
+    --player-track-buffered: rgba(255, 255, 255, 0.38);
+    --player-ctrl-hover: rgba(255, 255, 255, 0.12);
+    --player-marker: rgba(0, 0, 0, 0.55);
+    height: calc(100vh - 50px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    --gap: 6px;
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    min-height: 0;
+    background: var(--bg);
+  }
+  /* 2x2 grid of equal squares: front/back on top, right/left on bottom.
+     The whole grid is a square, centered and scaled to fit the stage. */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: var(--gap);
+    aspect-ratio: 1 / 1;
+    height: 100%;
+    max-width: 100%;
+    margin: auto;
+  }
+
+  /* Solo: clicking a camera's focus button expands it to fill the stage. */
+  .stage[data-solo] .grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    aspect-ratio: auto;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+  }
+  .stage[data-solo] .cam {
+    display: none;
+  }
+  .stage[data-solo='front'] .cam-front,
+  .stage[data-solo='back'] .cam-back,
+  .stage[data-solo='right'] .cam-right,
+  .stage[data-solo='left'] .cam-left {
+    display: block;
+  }
+  /* A single (focused/fullscreen) camera shows its full original frame,
+     scaled as large as it can fit (no cropping). */
+  .stage[data-solo] .cam video {
+    object-fit: contain;
+  }
+
+  .cam {
+    position: relative;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    min-height: 0;
+    min-width: 0;
+  }
+  .cam video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    background: #000;
+  }
+  .cam.empty video {
+    display: none;
+  }
+  .cam-empty {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+  .cam.empty .cam-empty {
+    display: flex;
+  }
+  .cam-label {
+    position: absolute;
+    top: 10px;
+    left: 11px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.82);
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+  .cam-focus {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(6px);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+    font-size: 0.9rem;
+    line-height: 1;
+  }
+  .cam:hover .cam-focus {
+    opacity: 1;
+  }
+  .cam-focus:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 5;
+    pointer-events: none;
+  }
+  .player:not([data-loading='true']) .overlay {
+    display: none;
+  }
+  .spinner {
+    width: 42px;
+    height: 42px;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .overlay-text {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  :global([data-theme='light']) .player {
+    --player-fg: #18181b;
+    --player-track-bg: #b8b8c3;
+    --player-track-buffered: #9ca3af;
+    --player-ctrl-hover: rgba(0, 0, 0, 0.08);
+    --player-marker: rgba(0, 0, 0, 0.38);
+  }
+
+  /* ---- YouTube-style control bar ---- */
+  .controls {
+    background: var(--bg-elev);
+    border-top: 1px solid var(--border);
+    padding: 0 8px 4px;
+    user-select: none;
+  }
+
+  /* Scrub bar (full width, grows on hover like YouTube). */
+  .track {
+    position: relative;
+    height: 20px;
+    margin: 0 4px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    overflow: visible;
+  }
+  .track-line {
+    position: relative;
+    width: 100%;
+    height: 3px;
+    background: var(--player-track-bg);
+    border-radius: 2px;
+    transition: height 0.1s ease;
+    overflow: visible;
+  }
+  /* Event/save point on the scrubber bar (position set via --event-pct in JS). */
+  .track[data-has-event='true'] .track-line::after {
+    content: '';
+    position: absolute;
+    left: var(--event-pct, 0%);
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(232, 33, 39, 0.9);
+    transform: translate(-50%, -50%);
+    z-index: 3;
+    pointer-events: none;
+  }
+  .track:hover .track-line,
+  .player[data-scrubbing='true'] .track-line {
+    height: 5px;
+  }
+  .buffered,
+  .progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .buffered {
+    background: var(--player-track-buffered);
+    width: 0;
+  }
+  .progress {
+    background: var(--accent);
+    width: 0;
+  }
+  .markers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .markers .mark {
+    position: absolute;
+    top: 50%;
+    width: 2px;
+    height: 8px;
+    background: var(--player-marker);
+    transform: translate(-50%, -50%);
+  }
+  .handle {
+    position: absolute;
+    width: 13px;
+    height: 13px;
+    background: var(--accent);
+    border-radius: 50%;
+    left: 0;
+    top: 50%;
+    z-index: 5;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.1s ease;
+    pointer-events: none;
+  }
+  .track:hover .handle,
+  .player[data-scrubbing='true'] .handle {
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  /* Button row. */
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 46px;
+  }
+  .left,
+  .right {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+  .ctrl {
+    position: relative;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: var(--player-fg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    opacity: 0.92;
+    transition:
+      opacity 0.1s ease,
+      background 0.1s ease,
+      transform 0.06s ease;
+  }
+  .ctrl:hover {
+    opacity: 1;
+    background: var(--player-ctrl-hover);
+  }
+  .ctrl:active {
+    transform: scale(0.9);
+  }
+  .ctrl.active {
+    color: var(--accent);
+  }
+  .ctrl .ic {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+    display: block;
+  }
+  /* Seek 10s buttons: number overlaid on the circular arrow. */
+  .ctrl-seek .ic-num {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -40%);
+    font-size: 0.5rem;
+    font-weight: 700;
+    pointer-events: none;
+  }
+  .ctrl-text {
+    font-size: 0.82rem;
+    font-weight: 600;
+    min-width: 42px;
+  }
+
+  /* Skip-to-event button (Sentry only). */
+  .ctrl-event {
+    gap: 0.4rem;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .ctrl-event[hidden] {
+    display: none;
+  }
+  .ctrl-event .event-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(232, 33, 39, 0.9);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+
+  /* Play/pause, mute and fullscreen icon swapping. */
+  .ic-pause,
+  .player[data-playing='true'] .ic-play {
+    display: none;
+  }
+  .player[data-playing='true'] .ic-pause {
+    display: block;
+  }
+  .ic-muted,
+  .player[data-muted='true'] .ic-vol {
+    display: none;
+  }
+  .player[data-muted='true'] .ic-muted {
+    display: block;
+  }
+  .ic-fs-exit {
+    display: none;
+  }
+  .player[data-fullscreen='true'] .ic-fs {
+    display: none;
+  }
+  .player[data-fullscreen='true'] .ic-fs-exit {
+    display: block;
+  }
+
+  .time {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+    color: var(--player-fg);
+    margin-left: 8px;
+    white-space: nowrap;
+  }
+  .time #time-total {
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 560px) {
+    .ctrl-seek,
+    #btn-rewind {
+      display: none;
+    }
+    .time {
+      font-size: 0.74rem;
+    }
+  }
+
+  /* ---- Clip details (below the player) ---- */
+  .details {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.75rem 1.25rem 3rem;
+  }
+  .details-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+  }
+  .details-body {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.4fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .info {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .info-row:last-child {
+    border-bottom: 0;
+  }
+  .info-row dt {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+  .info-row dd {
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-align: right;
+  }
+  .map-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+  .map-frame {
+    display: block;
+    width: 100%;
+    height: 340px;
+    border: 0;
+  }
+  .map-open {
+    display: block;
+    text-align: center;
+    padding: 0.65rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    border-top: 1px solid var(--border);
+    background: var(--bg-elev);
+  }
+  .map-open:hover {
+    color: var(--accent);
+  }
+  .map-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  @media (max-width: 760px) {
+    .details-body {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

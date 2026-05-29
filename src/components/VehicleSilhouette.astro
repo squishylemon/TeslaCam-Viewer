@@ -1,0 +1,102 @@
+---
+import type { ModelCode } from '../lib/vehicles';
+
+interface Props {
+  model: ModelCode;
+}
+const { model } = Astro.props;
+---
+
+<div class="vehicle-silhouette" data-model={model}>
+  {
+    model === 'MX' && (
+      <svg viewBox="0 0 200 80" aria-hidden="true" class="vehicle-svg">
+        <path
+          class="vehicle-body"
+          d="M18 52h164l-6-18c-4-12-16-20-32-20H56C40 14 28 22 24 34l-6 18z"
+        />
+        <path class="vehicle-glass" d="M52 24h96l8 14H44l8-14z" />
+        <circle class="vehicle-wheel" cx="52" cy="54" r="11" />
+        <circle class="vehicle-wheel" cx="148" cy="54" r="11" />
+        <path class="vehicle-spoiler" d="M162 30h18v6h-18z" />
+      </svg>
+    )
+  }
+  {
+    model === 'MS' && (
+      <svg viewBox="0 0 200 80" aria-hidden="true" class="vehicle-svg">
+        <path
+          class="vehicle-body"
+          d="M16 52h168l-4-16c-2-10-12-18-28-18H48c-16 0-26 8-28 18l-4 16z"
+        />
+        <path class="vehicle-glass" d="M48 22h104l6 12H42l6-12z" />
+        <circle class="vehicle-wheel" cx="54" cy="54" r="11" />
+        <circle class="vehicle-wheel" cx="146" cy="54" r="11" />
+        <path class="vehicle-roof" d="M70 18h60l-4 6H74l-4-6z" />
+      </svg>
+    )
+  }
+  {
+    model === 'MY' && (
+      <svg viewBox="0 0 200 80" aria-hidden="true" class="vehicle-svg">
+        <path
+          class="vehicle-body"
+          d="M20 52h160l-5-16c-3-10-14-18-30-18H55C39 18 28 26 25 36l-5 16z"
+        />
+        <path class="vehicle-glass" d="M54 26h92l7 12H47l7-12z" />
+        <circle class="vehicle-wheel" cx="54" cy="54" r="11" />
+        <circle class="vehicle-wheel" cx="146" cy="54" r="11" />
+      </svg>
+    )
+  }
+  {
+    model === 'M3' && (
+      <svg viewBox="0 0 200 80" aria-hidden="true" class="vehicle-svg">
+        <path
+          class="vehicle-body"
+          d="M22 52h156l-4-14c-2-9-12-16-26-16H52c-14 0-24 7-26 16l-4 14z"
+        />
+        <path class="vehicle-glass" d="M56 24h88l6 10H50l6-10z" />
+        <circle class="vehicle-wheel" cx="56" cy="54" r="10" />
+        <circle class="vehicle-wheel" cx="144" cy="54" r="10" />
+      </svg>
+    )
+  }
+</div>
+
+<style>
+  .vehicle-silhouette {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    aspect-ratio: 5 / 2;
+    border-radius: 12px;
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--accent) 12%, var(--bg-elev)) 0%,
+      var(--bg-elev) 55%,
+      var(--bg-card) 100%
+    );
+    border: 1px solid var(--border);
+  }
+  .vehicle-svg {
+    width: 88%;
+    max-height: 72px;
+  }
+  .vehicle-body {
+    fill: color-mix(in srgb, var(--text) 78%, var(--bg-card));
+  }
+  .vehicle-glass {
+    fill: color-mix(in srgb, var(--accent) 35%, var(--bg-elev));
+    opacity: 0.9;
+  }
+  .vehicle-wheel {
+    fill: var(--text);
+    opacity: 0.85;
+  }
+  .vehicle-spoiler,
+  .vehicle-roof {
+    fill: color-mix(in srgb, var(--text) 65%, var(--bg-card));
+  }
+</style>
