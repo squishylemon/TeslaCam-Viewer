@@ -1,17 +1,13 @@
 ---
 import Layout from '../../../layouts/Layout.astro';
 import SettingsLink from '../../../components/SettingsLink.astro';
-import {
-  readVehicleCookie,
-  resolveActiveVehicle,
-} from '../../../lib/vehicle-context';
+import { vehicleFromRequest } from '../../../lib/vehicle-context';
 import {
   CLIP_TYPES,
   getEvent,
   mapsUrl,
   type ClipType,
 } from '../../../lib/teslacam';
-import { listVehicles } from '../../../lib/vehicles';
 
 export const prerender = false;
 
@@ -21,11 +17,9 @@ if (!type || !(CLIP_TYPES as readonly string[]).includes(type) || !id) {
   return Astro.redirect('/');
 }
 
-const vehicles = listVehicles();
-const activeVehicle = resolveActiveVehicle(
-  vehicles,
-  Astro.url.searchParams.get('vehicle'),
-  readVehicleCookie(Astro.cookies),
+const { vehicles, active: activeVehicle } = vehicleFromRequest(
+  Astro.url,
+  Astro.cookies,
 );
 
 if (vehicles.length > 1 && !activeVehicle) {
