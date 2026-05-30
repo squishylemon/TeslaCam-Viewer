@@ -150,6 +150,7 @@ Generated `config.env` keys:
 - `USE_HTTPS` (`false` by default)
 - `MDNS_MODE` (`auto`, `host`, `container`, `off`)
 - `SESSION_SECRET`
+- `DEBUG` (`true` for local testing only: skips passkey/TOTP and shows a fixed warning footer)
 - `TESLACAM_*_IMAGE` image references
 
 ## Keyboard shortcuts

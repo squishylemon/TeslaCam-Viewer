@@ -1,4 +1,5 @@
 ---
+import { DEBUG_FOOTER_MESSAGE, isDebugMode } from '../lib/debug';
 import { getSiteHostname } from '../lib/site-hostname';
 
 interface Props {
@@ -8,10 +9,16 @@ interface Props {
 }
 const { title = 'TeslaCam Viewer', vehicleId = '' } = Astro.props;
 const siteHostname = getSiteHostname();
+const debugMode = isDebugMode();
 ---
 
 <!doctype html>
-<html lang="en" data-vehicle-id={vehicleId} data-site-hostname={siteHostname}>
+<html
+  lang="en"
+  data-vehicle-id={vehicleId}
+  data-site-hostname={siteHostname}
+  data-debug-mode={debugMode ? 'true' : undefined}
+>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -37,8 +44,15 @@ const siteHostname = getSiteHostname();
     </script>
     <title>{title}</title>
   </head>
-  <body>
+  <body class:list={{ 'has-debug-footer': debugMode }}>
     <slot />
+    {
+      debugMode && (
+        <footer class="debug-footer" role="status" aria-live="polite">
+          {DEBUG_FOOTER_MESSAGE}
+        </footer>
+      )
+    }
   </body>
 </html>
 
@@ -104,6 +118,30 @@ const siteHostname = getSiteHostname();
       sans-serif;
     -webkit-font-smoothing: antialiased;
     line-height: 1.5;
+  }
+
+  body.has-debug-footer {
+    padding-bottom: 2.75rem;
+  }
+
+  .debug-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    margin: 0;
+    padding: 0.45rem 0.75rem;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #fff;
+    background: #b45309;
+    border-top: 2px solid #fbbf24;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
   }
 
   a {

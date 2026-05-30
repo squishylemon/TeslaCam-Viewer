@@ -7,6 +7,7 @@ import {
   setSessionCookie,
   securitySetupComplete,
 } from '../../../lib/auth/session';
+import { isDebugMode } from '../../../lib/debug';
 import { verifyUserLogin } from '../../../lib/auth/users';
 
 export const prerender = false;
@@ -32,7 +33,7 @@ export const POST: APIRoute = async (context) => {
   }
 
   const methods = await getUserAuthMethodsById(user.id);
-  if (methods?.hasPasskey) {
+  if (!isDebugMode() && methods?.hasPasskey) {
     setLoginPending(context, user.id);
     return json({
       ok: true,
@@ -41,7 +42,7 @@ export const POST: APIRoute = async (context) => {
     });
   }
 
-  if (methods?.hasTotp) {
+  if (!isDebugMode() && methods?.hasTotp) {
     setLoginPending(context, user.id);
     return json({
       ok: true,
