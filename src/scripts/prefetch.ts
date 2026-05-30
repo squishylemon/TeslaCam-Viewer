@@ -1,15 +1,15 @@
 /**
- * Warm HTTP cache for clip video files before the user opens the player.
- *
- * Homepage hover  → first segment only (instant open).
- * Click / viewer  → remaining segments for that clip in the background.
+ * Homepage clip warm-up (first segment) + shared URL helpers.
  */
+
+import {
+  primeFast,
+  primeMany,
+} from './stream-cache';
 
 const CAM_ORDER = ['front', 'left', 'right', 'back'] as const;
 
 const prefetchedFirstSegment = new Set<string>();
-const prefetchedClipBodies = new Set<string>();
-const inflightUrls = new Set<string>();
 const warmVideos: HTMLVideoElement[] = [];
 
 /** Per-segment camera files (matches TeslaEvent groups). */
@@ -44,7 +44,6 @@ function clipKey(type: string, event: string): string {
   return `${type}/${event}`;
 }
 
-/** URLs for all cameras in one segment group. */
 export function segmentUrls(
   type: string,
   event: string,
@@ -55,7 +54,6 @@ export function segmentUrls(
     .map((f) => videoApiUrl(type, event, f));
 }
 
-/** URLs for all cameras in the first segment group. */
 export function firstSegmentUrls(
   type: string,
   event: string,
@@ -65,13 +63,13 @@ export function firstSegmentUrls(
 }
 
 export interface PrefetchFirstSegmentOptions {
-  /** Warm hidden <video> elements (homepage hover). */
   warm?: boolean;
-  /** Probe and cache segment duration in sessionStorage. */
   cacheDuration?: boolean;
 }
 
-/** Prefetch the first segment (all cameras) for a clip. Idempotent per clip. */
+/**
+ * Hover: prime first segment (head + tail ranges in Cache API) for instant open.
+ */
 export function prefetchFirstSegment(
   type: string,
   event: string,
@@ -84,96 +82,43 @@ export function prefetchFirstSegment(
   const urls = firstSegmentUrls(type, event, cams);
   if (urls.length === 0) return;
   prefetchedFirstSegment.add(key);
-  for (const url of urls) {
-    prefetchVideo(url, 1024 * 1024);
-    if (warm) warmVideoElement(url);
+
+  void primeMany(urls, urls.length);
+
+  if (warm) {
+    for (const url of urls) warmVideoElement(url);
   }
   if (cacheDuration && urls[0]) {
     cacheFirstSegmentDuration(type, event, urls[0]);
   }
 }
 
-/** Collect video URLs for segment groups [fromIndex .. end). */
-export function urlsForSegmentGroups(
+/** Click: fast-prime every segment (not full files) before navigation. */
+export function prefetchClipFast(
   type: string,
   event: string,
   groups: SegmentCams[],
-  fromIndex = 0,
-): string[] {
+): void {
   const urls: string[] = [];
-  for (let i = fromIndex; i < groups.length; i++) {
-    urls.push(...segmentUrls(type, event, groups[i].cams));
+  for (const g of groups) {
+    urls.push(...segmentUrls(type, event, g.cams));
   }
-  return urls;
-}
-
-export interface PrefetchRemainingOptions {
-  /** First segment index to prefetch (default 1 = skip segment already warmed on hover). */
-  fromIndex?: number;
-  /** Parallel Range fetches (default 6). */
-  concurrency?: number;
-  /** Bytes per file to pull into cache (default 2 MiB). */
-  bytes?: number;
-}
-
-/**
- * Prefetch video bytes for later segments of the clip currently being viewed.
- * Safe to call from homepage click (mousedown) and from the player on load.
- */
-export function prefetchRemainingSegments(
-  type: string,
-  event: string,
-  groups: SegmentCams[],
-  options: PrefetchRemainingOptions = {},
-): void {
-  const fromIndex = options.fromIndex ?? 1;
-  if (fromIndex >= groups.length) return;
-
-  const bodyKey = `${clipKey(type, event)}:body`;
-  if (prefetchedClipBodies.has(bodyKey)) return;
-
-  const urls = urlsForSegmentGroups(type, event, groups, fromIndex);
   if (urls.length === 0) return;
-
-  prefetchedClipBodies.add(bodyKey);
-  const concurrency = options.concurrency ?? 6;
-  const bytes = options.bytes ?? 2 * 1024 * 1024;
-  void runPrefetchPool(urls, concurrency, bytes);
+  void primeMany(urls, 8);
 }
 
-/** Start loading all non-first segments as soon as the player opens. */
-export function scheduleCurrentClipPrefetch(
-  type: string,
-  event: string,
-  groups: SegmentCams[],
-): void {
-  if (groups.length <= 1) return;
-  prefetchRemainingSegments(type, event, groups, {
-    fromIndex: 1,
-    concurrency: 8,
-    bytes: 2 * 1024 * 1024,
-  });
-}
-
-/** Hidden <video> warm-up so the player page reuses the same buffered data. */
 function warmVideoElement(url: string): void {
-  if (inflightUrls.has(`v:${url}`)) return;
-  inflightUrls.add(`v:${url}`);
   const v = warmVideos.pop() ?? document.createElement('video');
   v.preload = 'auto';
   v.muted = true;
   const release = () => {
-    v.removeAttribute('src');
-    v.load();
-    if (warmVideos.length < 8) warmVideos.push(v);
-    inflightUrls.delete(`v:${url}`);
+    if (warmVideos.length < 12) warmVideos.push(v);
   };
   v.addEventListener('loadeddata', release, { once: true });
   v.addEventListener('error', release, { once: true });
   v.src = url;
 }
 
-/** Store first-segment duration so the player can skip an initial probe. */
 function cacheFirstSegmentDuration(
   type: string,
   event: string,
@@ -206,63 +151,8 @@ export function cachedFirstSegmentDuration(
   return d > 0 && Number.isFinite(d) ? d : null;
 }
 
-/** Fetch the first N bytes of a video so Range requests hit cache on the player page. */
-function prefetchVideo(url: string, bytes = 1024 * 1024): void {
-  if (inflightUrls.has(url)) return;
-  inflightUrls.add(url);
-  fetch(url, {
-    headers: { Range: `bytes=0-${bytes - 1}` },
-    credentials: 'same-origin',
-  })
-    .catch(() => {})
-    .finally(() => inflightUrls.delete(url));
-}
-
-async function runPrefetchPool(
-  urls: string[],
-  concurrency: number,
-  bytes: number,
-): Promise<void> {
-  let idx = 0;
-  const workers = Array.from(
-    { length: Math.min(concurrency, urls.length) },
-    async () => {
-      while (idx < urls.length) {
-        if (document.hidden) {
-          await waitUntilVisible();
-        }
-        const url = urls[idx++];
-        prefetchVideo(url, bytes);
-        await pause(16);
-      }
-    },
-  );
-  await Promise.all(workers);
-}
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function waitUntilVisible(): Promise<void> {
-  if (!document.hidden) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onVisible = () => {
-      if (!document.hidden) {
-        document.removeEventListener('visibilitychange', onVisible);
-        resolve();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-  });
-}
-
 let homepageWarmStarted = false;
 
-/**
- * Prime TeslaCam catalog cache and optionally prefetch the homepage HTML.
- * Call from Settings so "All clips" reuses a warm server scan.
- */
 export function warmHomepage(opts: { includeHtml?: boolean; force?: boolean } = {}): void {
   const { includeHtml = true, force = false } = opts;
   if (!force && homepageWarmStarted && !includeHtml) return;
@@ -285,7 +175,6 @@ export function warmHomepage(opts: { includeHtml?: boolean; force?: boolean } = 
   void fetch('/', { credentials: 'same-origin', priority: 'low' }).catch(() => {});
 }
 
-/** Idle warm when viewing Settings (catalog + homepage). */
 export function scheduleWarmHomepage(): void {
   const run = () => warmHomepage({ includeHtml: true, force: true });
 

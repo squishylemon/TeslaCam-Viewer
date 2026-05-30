@@ -1,4 +1,6 @@
-import { videoApiUrl } from './prefetch';
+import { ClipStreamCoordinator } from './clip-stream';
+import { cachedFirstSegmentDuration, videoApiUrl } from './prefetch';
+import { getStreamTier, waitVideoPlayable } from './stream-cache';
 
 /**
  * TeslaCam synced multi-camera player.
@@ -94,17 +96,10 @@ function init(root: HTMLElement): void {
   // Virtual-timeline position (seconds) where the Sentry event was triggered.
   let eventOffset: number | null = null;
 
-  /** Full clip files in memory — instant segment changes without re-fetching SMB/HTTP. */
-  const mediaCache = new Map<string, { blobUrl: string; duration: number }>();
+  const stream = ClipStreamCoordinator.groupsFromPlayer(data.type, data.id, groups);
 
   let segmentEndHandled = false;
-
-  window.addEventListener('pagehide', () => {
-    for (const { blobUrl } of mediaCache.values()) {
-      URL.revokeObjectURL(blobUrl);
-    }
-    mediaCache.clear();
-  });
+  let segmentSwitchToken = 0;
 
   // --- Helpers ------------------------------------------------------------
   const clamp = (v: number, lo: number, hi: number) =>
@@ -195,12 +190,9 @@ function init(root: HTMLElement): void {
     root.dataset.loading = active ? 'true' : 'false';
   }
 
-  function setLoadProgress(done: number, totalCount: number): void {
-    const pct = totalCount > 0 ? Math.round((done / totalCount) * 100) : 0;
-    if (totalCount > 0 && done <= totalCount) {
-      overlayText.textContent = `Loading videos… ${done} / ${totalCount}`;
-    }
-    overlayProgressBar.style.width = `${pct}%`;
+  function setOverlayMessage(message: string, pct?: number): void {
+    overlayText.textContent = message;
+    if (pct != null) overlayProgressBar.style.width = `${pct}%`;
   }
 
   interface ClipFileEntry {
@@ -220,15 +212,15 @@ function init(root: HTMLElement): void {
     return out;
   }
 
-  function probeBlobDuration(blobUrl: string): Promise<number> {
+  function probeDuration(url: string): Promise<number> {
     return new Promise((resolve) => {
       const v = document.createElement('video');
       v.preload = 'metadata';
       v.muted = true;
-      const done = (duration: number) => {
+      const done = (d: number) => {
         v.removeAttribute('src');
         v.load();
-        resolve(duration);
+        resolve(d);
       };
       v.addEventListener(
         'loadedmetadata',
@@ -240,30 +232,8 @@ function init(root: HTMLElement): void {
         { once: true },
       );
       v.addEventListener('error', () => done(0), { once: true });
-      v.src = blobUrl;
+      v.src = url;
     });
-  }
-
-  /** Download a file into a blob URL so segment skips never hit the network again. */
-  async function loadVideoToCache(file: string, httpUrl: string): Promise<number> {
-    const hit = mediaCache.get(file);
-    if (hit) return hit.duration;
-
-    const res = await fetch(httpUrl, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error(`Failed to load ${file}`);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const duration = await probeBlobDuration(blobUrl);
-    mediaCache.set(file, { blobUrl, duration });
-    return duration;
-  }
-
-  function srcForFile(file: string): string {
-    return mediaCache.get(file)?.blobUrl ?? videoUrl(file);
-  }
-
-  function isFileCached(file: string): boolean {
-    return mediaCache.has(file);
   }
 
   function applyDurationsFromMap(durations: Map<string, number>): void {
@@ -290,41 +260,15 @@ function init(root: HTMLElement): void {
     renderMarkers();
   }
 
-  /** Load every camera file for this clip before showing the player. */
-  async function prepareFullClip(): Promise<void> {
+  async function probeTimelineDurations(): Promise<void> {
     const entries = listAllClipFiles();
-    const totalCount = entries.length;
-    if (totalCount === 0) return;
-
-    setLoading(true);
-    setLoadProgress(0, totalCount);
-
     const durations = new Map<string, number>();
-    let completed = 0;
-
     const tasks = entries.map((entry) => async () => {
-      const duration = await loadVideoToCache(entry.file, entry.url);
-      if (duration > 0) durations.set(entry.file, duration);
-      completed += 1;
-      setLoadProgress(completed, totalCount);
+      const d = await probeDuration(entry.url);
+      if (d > 0) durations.set(entry.file, d);
     });
-
-    await runPool(tasks, 4);
+    await runPool(tasks, 6);
     applyDurationsFromMap(durations);
-    await warmAllDecoders();
-  }
-
-  /** Mount every segment on the four players once so later skips only seek in RAM. */
-  async function warmAllDecoders(): Promise<void> {
-    if (groups.length === 0) return;
-    for (let i = 0; i < groups.length; i++) {
-      setLoadProgress(i, groups.length);
-      overlayText.textContent = `Preparing playback… ${i + 1} / ${groups.length}`;
-      loadGroup(i, 0, false);
-      await new Promise<void>((resolve) => playWhenReady(resolve));
-      for (const c of CAM_ORDER) videos[c].pause();
-    }
-    overlayProgressBar.style.width = '100%';
   }
 
   async function runPool(
@@ -347,36 +291,23 @@ function init(root: HTMLElement): void {
     return cams.every((c) => videos[c].readyState >= HTMLMediaElement.HAVE_FUTURE_DATA);
   }
 
-  /** Wait until decoders are ready (blob-backed switches are usually immediate). */
-  function playWhenReady(onReady: () => void): void {
-    const cams = availableCams(currentIndex);
-    if (cams.length === 0 || isGroupDecoded(currentIndex)) {
-      onReady();
-      return;
-    }
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      onReady();
-    };
-    let pending = cams.length;
-    const done = () => {
-      pending -= 1;
-      if (pending <= 0) finish();
-    };
-    for (const c of cams) {
-      const v = videos[c];
-      const file = groups[currentIndex].files[c];
-      const eventName =
-        file && isFileCached(file) ? 'loadeddata' : 'canplay';
-      if (v.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) done();
-      else {
-        v.addEventListener(eventName, done, { once: true });
-        v.addEventListener('error', done, { once: true });
-      }
-    }
-    window.setTimeout(finish, 4_000);
+  async function waitForGroupVideos(groupIndex: number, timeoutMs = 4_000): Promise<void> {
+    const cams = availableCams(groupIndex);
+    await Promise.all(
+      cams.map((c) => {
+        const file = groups[groupIndex].files[c]!;
+        const url = videoUrl(file);
+        return waitVideoPlayable(videos[c], url, timeoutMs);
+      }),
+    );
+  }
+
+  function bufferLabelForSegment(index: number): string {
+    const urls = stream.urlsForSegment(index);
+    const tier = urls[0] ? getStreamTier(urls[0]) : 'idle';
+    if (tier === 'full' || tier === 'stretch') return 'Buffering HD…';
+    if (tier === 'fast') return 'Buffering…';
+    return 'Loading segment…';
   }
 
   // --- Group loading ------------------------------------------------------
@@ -391,7 +322,7 @@ function init(root: HTMLElement): void {
       const v = videos[c];
       if (file) {
         wraps[c].classList.remove('empty');
-        const src = srcForFile(file);
+        const src = videoUrl(file);
         v.preload = 'auto';
         if (loadedFile[c] !== file || v.src !== src) {
           v.src = src;
@@ -418,13 +349,31 @@ function init(root: HTMLElement): void {
       if (resumePlaying) playAll();
     };
 
-    if (!srcChanged && isGroupDecoded(currentIndex)) {
-      startPlayback();
-      return;
+    applyPendingSeek();
+    if (resumePlaying && isGroupDecoded(currentIndex)) startPlayback();
+  }
+
+  async function switchToGroup(
+    i: number,
+    localTime: number,
+    resumePlaying: boolean,
+  ): Promise<void> {
+    const token = ++segmentSwitchToken;
+    const needsNetwork = i !== currentIndex;
+
+    if (needsNetwork) {
+      setLoading(true);
+      setOverlayMessage(bufferLabelForSegment(i), 15);
+      await stream.focusSegment(i);
+      if (token !== segmentSwitchToken) return;
     }
 
-    applyPendingSeek();
-    if (resumePlaying) playWhenReady(startPlayback);
+    loadGroup(i, localTime, false);
+    await waitForGroupVideos(i, needsNetwork ? 6_000 : 2_000);
+    if (token !== segmentSwitchToken) return;
+
+    if (needsNetwork) setLoading(false);
+    if (resumePlaying) playAll();
   }
 
   function applyPendingSeek(): void {
@@ -468,10 +417,11 @@ function init(root: HTMLElement): void {
 
     const resume = opts.keepPaused ? false : playing;
     if (i !== currentIndex) {
-      loadGroup(i, local, resume);
+      void switchToGroup(i, local, resume);
     } else {
       pendingSeekLocal = local;
       applyPendingSeek();
+      if (resume) playAll();
     }
     updateUI();
   }
@@ -502,7 +452,7 @@ function init(root: HTMLElement): void {
     if (segmentEndHandled) return;
     segmentEndHandled = true;
     if (currentIndex < groups.length - 1) {
-      loadGroup(currentIndex + 1, 0, playing);
+      void switchToGroup(currentIndex + 1, 0, playing);
     } else {
       pauseAll();
     }
@@ -736,34 +686,28 @@ function init(root: HTMLElement): void {
   });
 
   // --- Boot ---------------------------------------------------------------
+  const cachedDur = cachedFirstSegmentDuration(data.type, data.id);
+  if (cachedDur) groups[0].duration = cachedDur;
   recomputeOffsets();
   timeTotal.textContent = fmt(total);
   applyRate();
   computeEventOffset();
   renderMarkers();
   setLoading(true);
-  setLoadProgress(0, listAllClipFiles().length);
-
-  function waitForGroupCanPlay(groupIndex: number): Promise<void> {
-    const cams = availableCams(groupIndex);
-    if (cams.length === 0) return Promise.resolve();
-    return new Promise((resolve) => {
-      playWhenReady(resolve);
-    });
-  }
+  setOverlayMessage('Starting playback…', 8);
 
   void (async () => {
-    try {
-      await prepareFullClip();
-      loadGroup(0, 0, false);
-      await waitForGroupCanPlay(0);
-      setLoading(false);
-      startAutoplay();
-    } catch {
-      setLoading(false);
-      loadGroup(0, 0, true);
-    }
+    await stream.primeFirstSegment();
+    setOverlayMessage('Starting playback…', 35);
+    loadGroup(0, 0, false);
+    await waitForGroupVideos(0, 3_500);
+    setLoading(false);
+    startAutoplay();
     requestAnimationFrame(frame);
+
+    void stream.primeAllFast();
+    void probeTimelineDurations();
+    stream.startBackgroundPipeline();
   })();
 
   function renderMarkers(): void {

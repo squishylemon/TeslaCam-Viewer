@@ -1,4 +1,4 @@
-import { prefetchFirstSegment } from './prefetch';
+import { prefetchClipFast, prefetchFirstSegment, type SegmentCams } from './prefetch';
 import {
   matchesSearch,
   passesDateRange,
@@ -19,7 +19,18 @@ function cancelHoverPrefetch(): void {
   prefetchTimer = 0;
 }
 
-/** Hover: warm first segment only (viewer loads the rest on open). */
+function readPrefetchGroups(card: HTMLAnchorElement): SegmentCams[] | null {
+  const raw = card.dataset.prefetchGroups;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as SegmentCams[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Hover: prime first segment (fast ranges in cache). */
 function runHoverPrefetch(card: HTMLAnchorElement): void {
   const type = card.dataset.prefetchType;
   const id = card.dataset.prefetchId;
@@ -31,6 +42,15 @@ function runHoverPrefetch(card: HTMLAnchorElement): void {
   } catch {
     /* ignore */
   }
+}
+
+function runClickPrefetch(card: HTMLAnchorElement): void {
+  const type = card.dataset.prefetchType;
+  const id = card.dataset.prefetchId;
+  if (!type || !id) return;
+  runHoverPrefetch(card);
+  const groups = readPrefetchGroups(card);
+  if (groups && groups.length > 0) prefetchClipFast(type, id, groups);
 }
 
 function wirePrefetch(): void {
@@ -59,8 +79,8 @@ function wirePrefetch(): void {
       };
       card.addEventListener('mouseenter', scheduleHoverPrefetch);
       card.addEventListener('focus', scheduleHoverPrefetch);
-      card.addEventListener('mousedown', () => runHoverPrefetch(card));
-      card.addEventListener('touchstart', () => runHoverPrefetch(card), {
+      card.addEventListener('mousedown', () => runClickPrefetch(card));
+      card.addEventListener('touchstart', () => runClickPrefetch(card), {
         passive: true,
       });
       card.addEventListener('mouseleave', cancelHoverPrefetch);
