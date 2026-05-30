@@ -1,7 +1,7 @@
 ---
 import Layout from '../../../layouts/Layout.astro';
 import SettingsLink from '../../../components/SettingsLink.astro';
-import { vehicleFromRequest } from '../../../lib/vehicle-context';
+import { setVehicleCookie, vehicleFromRequest } from '../../../lib/vehicle-context';
 import {
   CLIP_TYPES,
   getEvent,
@@ -21,6 +21,8 @@ const { vehicles, active: activeVehicle } = vehicleFromRequest(
   Astro.url,
   Astro.cookies,
 );
+
+if (activeVehicle?.id) setVehicleCookie(Astro.cookies, activeVehicle.id);
 
 if (vehicles.length > 1 && !activeVehicle) {
   return Astro.redirect('/vehicles');

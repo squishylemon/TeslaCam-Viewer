@@ -282,7 +282,7 @@ const groups = [
                           return (
                             <a
                               class="card"
-                              href={`/clip/${ev.type}/${ev.id}`}
+                              href={`/clip/${ev.type}/${ev.id}${vehicleId ? `?vehicle=${encodeURIComponent(vehicleId)}` : ''}`}
                               aria-label={`Open clip from ${formatDay(ev.timestamp)}`}
                               data-type={ev.type}
                               data-id={ev.id}

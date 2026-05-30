@@ -1,6 +1,7 @@
 import {
   cachedFirstSegmentDuration,
   schedulePostLoadPrefetch,
+  videoApiUrl,
 } from './prefetch';
 
 /**
@@ -40,9 +41,7 @@ function init(root: HTMLElement): void {
   if (!data.groups || data.groups.length === 0) return;
 
   const videoUrl = (file: string): string =>
-    `/api/video?type=${encodeURIComponent(data.type)}&event=${encodeURIComponent(
-      data.id,
-    )}&file=${encodeURIComponent(file)}`;
+    videoApiUrl(data.type, data.id, file);
 
   // --- Elements -----------------------------------------------------------
   const stage = root.querySelector<HTMLElement>('.stage')!;
@@ -106,6 +105,7 @@ function init(root: HTMLElement): void {
     return v;
   });
   let preloadedFor = -1;
+  let segmentEndHandled = false;
 
   // --- Helpers ------------------------------------------------------------
   const clamp = (v: number, lo: number, hi: number) =>
@@ -242,9 +242,11 @@ function init(root: HTMLElement): void {
     await waitFirstGroupReady();
     startAutoplay();
     bindDurationFromActiveGroup(0);
-    schedulePostLoadPrefetch(data.type, data.id);
 
-    if (groups.length <= 1) return;
+    if (groups.length <= 1) {
+      schedulePostLoadPrefetch(data.type, data.id);
+      return;
+    }
 
     const tasks = groups.slice(1).map((_, idx) => async () => {
       await probeGroup(idx + 1);
@@ -258,6 +260,7 @@ function init(root: HTMLElement): void {
     timeTotal.textContent = fmt(total);
     computeEventOffset();
     renderMarkers();
+    schedulePostLoadPrefetch(data.type, data.id);
   }
 
   function probeOne(url: string): Promise<number> {
@@ -304,9 +307,39 @@ function init(root: HTMLElement): void {
     await Promise.all(workers);
   }
 
+  /** Start playback once the active group's videos can decode frames. */
+  function playWhenReady(onReady: () => void): void {
+    const cams = availableCams(currentIndex);
+    if (cams.length === 0) {
+      onReady();
+      return;
+    }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      onReady();
+    };
+    let pending = cams.length;
+    const done = () => {
+      pending -= 1;
+      if (pending <= 0) finish();
+    };
+    for (const c of cams) {
+      const v = videos[c];
+      if (v.readyState >= 2) done();
+      else {
+        v.addEventListener('canplay', done, { once: true });
+        v.addEventListener('error', done, { once: true });
+      }
+    }
+    window.setTimeout(finish, 12_000);
+  }
+
   // --- Group loading ------------------------------------------------------
   function loadGroup(i: number, localTime = 0, resumePlaying = playing): void {
     currentIndex = clamp(i, 0, groups.length - 1);
+    segmentEndHandled = false;
     const g = groups[currentIndex];
 
     for (const c of CAM_ORDER) {
@@ -336,7 +369,14 @@ function init(root: HTMLElement): void {
     pendingSeekLocal = localTime;
     applyPendingSeek();
 
-    if (resumePlaying) playAll();
+    bindDurationFromActiveGroup(currentIndex);
+
+    if (resumePlaying) {
+      playWhenReady(() => {
+        applyPendingSeek();
+        playAll();
+      });
+    }
   }
 
   function applyPendingSeek(): void {
@@ -411,11 +451,25 @@ function init(root: HTMLElement): void {
   }
 
   function advanceGroup(): void {
+    if (segmentEndHandled) return;
+    segmentEndHandled = true;
     if (currentIndex < groups.length - 1) {
+      preloadedFor = -1;
       loadGroup(currentIndex + 1, 0, playing);
     } else {
       pauseAll();
     }
+  }
+
+  /** Fallback when `ended` does not fire (browser / SMB edge cases). */
+  function checkSegmentEnd(): void {
+    if (!playing || scrubbing || rewinding || segmentEndHandled) return;
+    const cv = clockVideo(currentIndex);
+    if (!cv) return;
+    const dur = cv.duration;
+    if (!dur || !Number.isFinite(dur) || dur <= 0) return;
+    if (cv.currentTime < dur - 0.2) return;
+    advanceGroup();
   }
 
   // --- Sync + UI loop -----------------------------------------------------
@@ -494,6 +548,7 @@ function init(root: HTMLElement): void {
       seekGlobal(t, { keepPaused: true });
     } else {
       syncDrift();
+      checkSegmentEnd();
       maybePreloadNext();
     }
     updateUI();
@@ -517,6 +572,9 @@ function init(root: HTMLElement): void {
   for (const c of CAM_ORDER) {
     videos[c].addEventListener('ended', (e) => {
       if (e.target === clockVideo(currentIndex) && !rewinding) advanceGroup();
+    });
+    videos[c].addEventListener('timeupdate', () => {
+      if (videos[c] === clockVideo(currentIndex)) checkSegmentEnd();
     });
   }
 
