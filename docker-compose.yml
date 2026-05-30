@@ -69,11 +69,16 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # SMB library mounts need mount.cifs + capset (DAC_READ_SEARCH) inside the container.
   web:
     image: ${TESLACAM_WEB_IMAGE:-ghcr.io/squishylemon/teslacam-web:latest}
     container_name: teslacam-viewer
     cap_add:
       - SYS_ADMIN
+      - DAC_READ_SEARCH
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     depends_on:
       db:
         condition: service_healthy

@@ -77,8 +77,20 @@ function toggleCredentialsFields(): void {
     'location-requires-credentials',
   ) as HTMLInputElement | null;
   const wrap = document.getElementById('location-credentials');
+  const userInput = document.getElementById('location-username') as HTMLInputElement | null;
+  const passInput = document.getElementById('location-password') as HTMLInputElement | null;
   if (!wrap || !credsCheck) return;
-  wrap.hidden = !credsCheck.checked;
+  const show = credsCheck.checked;
+  wrap.hidden = !show;
+  wrap.setAttribute('aria-hidden', show ? 'false' : 'true');
+  if (userInput) {
+    userInput.disabled = !show;
+    userInput.tabIndex = show ? 0 : -1;
+  }
+  if (passInput) {
+    passInput.disabled = !show;
+    passInput.tabIndex = show ? 0 : -1;
+  }
 }
 
 function renderLocations(locations: LibraryLocation[]): void {
@@ -144,6 +156,7 @@ export function initLibraryLocations(): void {
   const section = document.getElementById('libraries-admin-section');
   if (!section) return;
 
+  toggleCredentialsFields();
   void refreshList();
 
   document.getElementById('btn-new-location')?.addEventListener('click', () => {

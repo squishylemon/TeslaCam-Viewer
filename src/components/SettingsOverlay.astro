@@ -566,19 +566,37 @@ const isAdmin = user.isAdmin;
             Local paths must exist inside the container (bind-mount from the host).
           </p>
         </label>
-        <label class="admin-check">
-          <input type="checkbox" id="location-requires-credentials" />
-          <span>Requires credentials</span>
-        </label>
-        <div id="location-credentials" class="location-credentials" hidden>
-          <label class="admin-field">
-            <span>Username</span>
-            <input type="text" id="location-username" autocomplete="off" />
+        <div class="location-creds-control">
+          <label class="admin-check">
+            <input type="checkbox" id="location-requires-credentials" />
+            <span>Requires credentials</span>
           </label>
-          <label class="admin-field">
-            <span>Password</span>
-            <input type="password" id="location-password" autocomplete="new-password" />
-          </label>
+          <p class="field-hint location-creds-hint">
+            Windows PCs usually block guest SMB. If mount fails with error 128, enable this and use a
+            Windows user that can open the share.
+          </p>
+          <div id="location-credentials" class="location-credentials">
+            <label class="admin-field">
+              <span>Username</span>
+              <input
+                type="text"
+                id="location-username"
+                autocomplete="off"
+                disabled
+                tabindex="-1"
+              />
+            </label>
+            <label class="admin-field">
+              <span>Password</span>
+              <input
+                type="password"
+                id="location-password"
+                autocomplete="new-password"
+                disabled
+                tabindex="-1"
+              />
+            </label>
+          </div>
         </div>
         <label class="admin-check">
           <input type="checkbox" id="location-enabled" checked />
@@ -847,11 +865,22 @@ const isAdmin = user.isAdmin;
     flex-direction: column;
     gap: 0.65rem;
   }
+  .location-creds-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+  .location-creds-hint {
+    margin: 0 0 0.15rem;
+  }
   .location-credentials {
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
     padding: 0.5rem 0;
+  }
+  .location-creds-control:has(#location-requires-credentials:not(:checked)) .location-credentials {
+    display: none !important;
   }
   .location-modal-actions {
     display: flex;
