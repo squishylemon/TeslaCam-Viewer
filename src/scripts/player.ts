@@ -1,8 +1,4 @@
-import {
-  cachedFirstSegmentDuration,
-  scheduleCurrentClipPrefetch,
-  videoApiUrl,
-} from './prefetch';
+import { videoApiUrl } from './prefetch';
 
 /**
  * TeslaCam synced multi-camera player.
@@ -76,6 +72,8 @@ function init(root: HTMLElement): void {
   const markersEl = document.getElementById('markers')!;
   const timeCurrent = document.getElementById('time-current')!;
   const timeTotal = document.getElementById('time-total')!;
+  const overlayText = document.getElementById('overlay-text')!;
+  const overlayProgressBar = document.getElementById('overlay-progress-bar')!;
 
   // --- State --------------------------------------------------------------
   const groups: Group[] = data.groups.map((g) => ({
@@ -179,33 +177,6 @@ function init(root: HTMLElement): void {
     total = acc;
   }
 
-  async function probeGroup(i: number): Promise<void> {
-    const g = groups[i];
-    const file = CAM_ORDER.map((c) => g.files[c]).find(Boolean);
-    if (file) {
-      const d = await probeOne(videoUrl(file));
-      if (d && isFinite(d) && d > 0) g.duration = d;
-    }
-  }
-
-  function waitFirstGroupReady(): Promise<void> {
-    const cams = availableCams(0);
-    if (cams.length === 0) return Promise.resolve();
-    return Promise.all(
-      cams.map(
-        (c) =>
-          new Promise<void>((resolve) => {
-            const v = videos[c];
-            const finish = () => resolve();
-            if (v.readyState >= 2) return finish();
-            v.addEventListener('loadeddata', finish, { once: true });
-            v.addEventListener('error', finish, { once: true });
-            window.setTimeout(finish, 8000);
-          }),
-      ),
-    ).then(() => {});
-  }
-
   /** Read segment duration from the on-screen videos (no extra network fetch). */
   function bindDurationFromActiveGroup(i: number): void {
     const cv = clockVideo(i);
@@ -237,56 +208,104 @@ function init(root: HTMLElement): void {
     }
   }
 
-  /** Probe segments after the first frame is visible; low concurrency avoids starving playback. */
-  async function probeTimelineAfterFirstFrame(): Promise<void> {
-    await waitFirstGroupReady();
-    startAutoplay();
-    bindDurationFromActiveGroup(0);
+  function setLoading(active: boolean): void {
+    root.dataset.loading = active ? 'true' : 'false';
+  }
 
-    if (groups.length <= 1) return;
+  function setLoadProgress(done: number, totalCount: number): void {
+    const pct = totalCount > 0 ? Math.round((done / totalCount) * 100) : 0;
+    overlayText.textContent =
+      totalCount > 0 ? `Loading videos… ${done} / ${totalCount}` : 'Loading videos…';
+    overlayProgressBar.style.width = `${pct}%`;
+  }
 
-    const tasks = groups.slice(1).map((_, idx) => async () => {
-      await probeGroup(idx + 1);
-      recomputeOffsets();
-      timeTotal.textContent = fmt(total);
-      computeEventOffset();
-      renderMarkers();
+  interface ClipFileEntry {
+    file: string;
+    url: string;
+    groupIndex: number;
+  }
+
+  function listAllClipFiles(): ClipFileEntry[] {
+    const out: ClipFileEntry[] = [];
+    groups.forEach((g, groupIndex) => {
+      for (const c of CAM_ORDER) {
+        const file = g.files[c];
+        if (file) out.push({ file, url: videoUrl(file), groupIndex });
+      }
     });
-    await runPool(tasks, 4);
+    return out;
+  }
+
+  /** Buffer a single MP4 until it can play through (or timeout with partial buffer). */
+  function loadVideoFully(url: string): Promise<number> {
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      v.preload = 'auto';
+      v.muted = true;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        const d =
+          v.duration > 0 && Number.isFinite(v.duration) ? v.duration : 0;
+        v.removeAttribute('src');
+        v.load();
+        resolve(d);
+      };
+      const timer = window.setTimeout(finish, 120_000);
+      v.addEventListener('canplaythrough', finish, { once: true });
+      v.addEventListener('error', finish, { once: true });
+      v.src = url;
+      v.load();
+    });
+  }
+
+  function applyDurationsFromMap(durations: Map<string, number>): void {
+    for (let i = 0; i < groups.length; i++) {
+      const clock = clockCam(i);
+      const clockFile = clock ? groups[i].files[clock] : undefined;
+      const fromClock = clockFile ? durations.get(clockFile) : undefined;
+      if (fromClock && fromClock > 0) {
+        groups[i].duration = fromClock;
+        continue;
+      }
+      for (const c of availableCams(i)) {
+        const f = groups[i].files[c];
+        const d = f ? durations.get(f) : undefined;
+        if (d && d > 0) {
+          groups[i].duration = d;
+          break;
+        }
+      }
+    }
     recomputeOffsets();
     timeTotal.textContent = fmt(total);
     computeEventOffset();
     renderMarkers();
   }
 
-  function probeOne(url: string): Promise<number> {
-    return new Promise((resolve) => {
-      const v = document.createElement('video');
-      v.preload = 'metadata';
-      v.muted = true;
-      const cleanup = () => {
-        v.removeAttribute('src');
-        v.load();
-      };
-      v.addEventListener(
-        'loadedmetadata',
-        () => {
-          const d = v.duration;
-          cleanup();
-          resolve(d);
-        },
-        { once: true },
-      );
-      v.addEventListener(
-        'error',
-        () => {
-          cleanup();
-          resolve(0);
-        },
-        { once: true },
-      );
-      v.src = url;
+  /** Load every camera file for this clip before showing the player. */
+  async function prepareFullClip(): Promise<void> {
+    const entries = listAllClipFiles();
+    const totalCount = entries.length;
+    if (totalCount === 0) return;
+
+    setLoading(true);
+    setLoadProgress(0, totalCount);
+
+    const durations = new Map<string, number>();
+    let completed = 0;
+
+    const tasks = entries.map((entry) => async () => {
+      const duration = await loadVideoFully(entry.url);
+      if (duration > 0) durations.set(entry.file, duration);
+      completed += 1;
+      setLoadProgress(completed, totalCount);
     });
+
+    await runPool(tasks, 4);
+    applyDurationsFromMap(durations);
   }
 
   async function runPool(
@@ -708,23 +727,35 @@ function init(root: HTMLElement): void {
   });
 
   // --- Boot ---------------------------------------------------------------
-  // Show the player immediately (prefetch + default segment lengths). Timeline
-  // refines in the background with no blocking overlay.
-  const cachedDur = cachedFirstSegmentDuration(data.type, data.id);
-  if (cachedDur) groups[0].duration = cachedDur;
   recomputeOffsets();
   timeTotal.textContent = fmt(total);
-  loadGroup(0, 0, false);
   applyRate();
   computeEventOffset();
   renderMarkers();
-  scheduleCurrentClipPrefetch(
-    data.type,
-    data.id,
-    groups.map((g) => ({ cams: g.files })),
-  );
-  requestAnimationFrame(frame);
-  void probeTimelineAfterFirstFrame();
+  setLoading(true);
+  setLoadProgress(0, listAllClipFiles().length);
+
+  function waitForGroupCanPlay(groupIndex: number): Promise<void> {
+    const cams = availableCams(groupIndex);
+    if (cams.length === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      playWhenReady(resolve);
+    });
+  }
+
+  void (async () => {
+    try {
+      await prepareFullClip();
+      loadGroup(0, 0, false);
+      await waitForGroupCanPlay(0);
+      setLoading(false);
+      startAutoplay();
+    } catch {
+      setLoading(false);
+      loadGroup(0, 0, true);
+    }
+    requestAnimationFrame(frame);
+  })();
 
   function renderMarkers(): void {
     delete track.dataset.hasEvent;

@@ -107,7 +107,7 @@ const details: { label: string; value: string }[] = [
     id="player"
     class="player"
     data-clip={JSON.stringify(clipData)}
-    data-loading="false"
+    data-loading="true"
     data-playing="false"
     data-muted="true"
     data-fullscreen="false"
@@ -118,7 +118,6 @@ const details: { label: string; value: string }[] = [
           <video
             id="cam-front"
             muted
-            autoplay
             playsinline
             preload="auto"
             disablepictureinpicture></video>
@@ -130,7 +129,6 @@ const details: { label: string; value: string }[] = [
           <video
             id="cam-back"
             muted
-            autoplay
             playsinline
             preload="auto"
             disablepictureinpicture></video>
@@ -142,7 +140,6 @@ const details: { label: string; value: string }[] = [
           <video
             id="cam-right"
             muted
-            autoplay
             playsinline
             preload="auto"
             disablepictureinpicture></video>
@@ -154,7 +151,6 @@ const details: { label: string; value: string }[] = [
           <video
             id="cam-left"
             muted
-            autoplay
             playsinline
             preload="auto"
             disablepictureinpicture></video>
@@ -163,9 +159,12 @@ const details: { label: string; value: string }[] = [
           <div class="cam-empty">No signal</div>
         </div>
       </div>
-      <div class="overlay" id="overlay" hidden>
+      <div class="overlay" id="overlay" aria-live="polite">
         <div class="spinner"></div>
-        <div class="overlay-text" id="overlay-text"></div>
+        <p class="overlay-text" id="overlay-text">Loading videos…</p>
+        <div class="overlay-progress" aria-hidden="true">
+          <div class="overlay-progress-bar" id="overlay-progress-bar"></div>
+        </div>
       </div>
     </div>
 
@@ -449,6 +448,18 @@ const details: { label: string; value: string }[] = [
     background: rgba(255, 255, 255, 0.2);
   }
 
+  .player[data-loading='true'] .stage video {
+    opacity: 0;
+  }
+  .player:not([data-loading='true']) .stage video {
+    opacity: 1;
+    transition: opacity 0.25s ease;
+  }
+  .player[data-loading='true'] .controls {
+    pointer-events: none;
+    opacity: 0.45;
+  }
+
   .overlay {
     position: absolute;
     inset: 0;
@@ -456,10 +467,10 @@ const details: { label: string; value: string }[] = [
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    background: rgba(0, 0, 0, 0.65);
+    gap: 0.85rem;
+    background: rgba(9, 9, 11, 0.92);
     z-index: 5;
-    pointer-events: none;
+    pointer-events: auto;
   }
   .player:not([data-loading='true']) .overlay {
     display: none;
@@ -478,8 +489,24 @@ const details: { label: string; value: string }[] = [
     }
   }
   .overlay-text {
-    color: var(--text-dim);
-    font-size: 0.9rem;
+    margin: 0;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-weight: 500;
+  }
+  .overlay-progress {
+    width: min(280px, 70vw);
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+  }
+  .overlay-progress-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 0.2s ease;
   }
 
   :global([data-theme='light']) .player {
