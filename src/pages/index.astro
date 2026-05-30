@@ -295,6 +295,9 @@ const groups = [
                               data-prefetch-type={ev.type}
                               data-prefetch-id={ev.id}
                               data-prefetch-cams={JSON.stringify(firstCams)}
+                              data-prefetch-groups={JSON.stringify(
+                                ev.groups.map((g) => ({ cams: g.cams })),
+                              )}
                             >
                         <div class="thumb">
                           {ev.hasThumb ? (

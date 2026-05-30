@@ -1,12 +1,21 @@
 /**
  * Warm HTTP cache for clip video files before the user opens the player.
+ *
+ * Homepage hover  → first segment only (instant open).
+ * Click / viewer  → remaining segments for that clip in the background.
  */
 
 const CAM_ORDER = ['front', 'left', 'right', 'back'] as const;
 
-const prefetchedClips = new Set<string>();
+const prefetchedFirstSegment = new Set<string>();
+const prefetchedClipBodies = new Set<string>();
 const inflightUrls = new Set<string>();
 const warmVideos: HTMLVideoElement[] = [];
+
+/** Per-segment camera files (matches TeslaEvent groups). */
+export interface SegmentCams {
+  cams: Partial<Record<string, string>>;
+}
 
 function activeVehicleId(): string {
   return document.documentElement.dataset.vehicleId?.trim() ?? '';
@@ -31,8 +40,12 @@ export function videoApiUrl(
   return vehicle ? `${base}&vehicle=${encodeURIComponent(vehicle)}` : base;
 }
 
-/** URLs for all cameras in the first segment group. */
-export function firstSegmentUrls(
+function clipKey(type: string, event: string): string {
+  return `${type}/${event}`;
+}
+
+/** URLs for all cameras in one segment group. */
+export function segmentUrls(
   type: string,
   event: string,
   cams: Partial<Record<string, string>>,
@@ -42,8 +55,17 @@ export function firstSegmentUrls(
     .map((f) => videoApiUrl(type, event, f));
 }
 
+/** URLs for all cameras in the first segment group. */
+export function firstSegmentUrls(
+  type: string,
+  event: string,
+  cams: Partial<Record<string, string>>,
+): string[] {
+  return segmentUrls(type, event, cams);
+}
+
 export interface PrefetchFirstSegmentOptions {
-  /** Warm hidden <video> elements (off for bulk background prefetch). */
+  /** Warm hidden <video> elements (homepage hover). */
   warm?: boolean;
   /** Probe and cache segment duration in sessionStorage. */
   cacheDuration?: boolean;
@@ -57,18 +79,80 @@ export function prefetchFirstSegment(
   options: PrefetchFirstSegmentOptions = {},
 ): void {
   const { warm = true, cacheDuration = true } = options;
-  const key = `${type}/${event}`;
-  if (prefetchedClips.has(key)) return;
+  const key = clipKey(type, event);
+  if (prefetchedFirstSegment.has(key)) return;
   const urls = firstSegmentUrls(type, event, cams);
   if (urls.length === 0) return;
-  prefetchedClips.add(key);
+  prefetchedFirstSegment.add(key);
   for (const url of urls) {
-    prefetchVideo(url);
+    prefetchVideo(url, 1024 * 1024);
     if (warm) warmVideoElement(url);
   }
   if (cacheDuration && urls[0]) {
     cacheFirstSegmentDuration(type, event, urls[0]);
   }
+}
+
+/** Collect video URLs for segment groups [fromIndex .. end). */
+export function urlsForSegmentGroups(
+  type: string,
+  event: string,
+  groups: SegmentCams[],
+  fromIndex = 0,
+): string[] {
+  const urls: string[] = [];
+  for (let i = fromIndex; i < groups.length; i++) {
+    urls.push(...segmentUrls(type, event, groups[i].cams));
+  }
+  return urls;
+}
+
+export interface PrefetchRemainingOptions {
+  /** First segment index to prefetch (default 1 = skip segment already warmed on hover). */
+  fromIndex?: number;
+  /** Parallel Range fetches (default 6). */
+  concurrency?: number;
+  /** Bytes per file to pull into cache (default 2 MiB). */
+  bytes?: number;
+}
+
+/**
+ * Prefetch video bytes for later segments of the clip currently being viewed.
+ * Safe to call from homepage click (mousedown) and from the player on load.
+ */
+export function prefetchRemainingSegments(
+  type: string,
+  event: string,
+  groups: SegmentCams[],
+  options: PrefetchRemainingOptions = {},
+): void {
+  const fromIndex = options.fromIndex ?? 1;
+  if (fromIndex >= groups.length) return;
+
+  const bodyKey = `${clipKey(type, event)}:body`;
+  if (prefetchedClipBodies.has(bodyKey)) return;
+
+  const urls = urlsForSegmentGroups(type, event, groups, fromIndex);
+  if (urls.length === 0) return;
+
+  prefetchedClipBodies.add(bodyKey);
+  const concurrency = options.concurrency ?? 6;
+  const bytes = options.bytes ?? 2 * 1024 * 1024;
+  void runPrefetchPool(urls, concurrency, bytes);
+}
+
+/** Start loading all non-first segments as soon as the player opens. */
+export function scheduleCurrentClipPrefetch(
+  type: string,
+  event: string,
+  groups: SegmentCams[],
+): void {
+  if (groups.length <= 1) return;
+  prefetchRemainingSegments(type, event, groups, {
+    fromIndex: 1,
+    concurrency: 8,
+    bytes: 2 * 1024 * 1024,
+  });
 }
 
 /** Hidden <video> warm-up so the player page reuses the same buffered data. */
@@ -81,7 +165,7 @@ function warmVideoElement(url: string): void {
   const release = () => {
     v.removeAttribute('src');
     v.load();
-    if (warmVideos.length < 6) warmVideos.push(v);
+    if (warmVideos.length < 8) warmVideos.push(v);
     inflightUrls.delete(`v:${url}`);
   };
   v.addEventListener('loadeddata', release, { once: true });
@@ -122,51 +206,55 @@ export function cachedFirstSegmentDuration(
   return d > 0 && Number.isFinite(d) ? d : null;
 }
 
-/** Fetch the first ~1 MiB of a video so Range requests hit cache on the player page. */
-function prefetchVideo(url: string): void {
+/** Fetch the first N bytes of a video so Range requests hit cache on the player page. */
+function prefetchVideo(url: string, bytes = 1024 * 1024): void {
   if (inflightUrls.has(url)) return;
   inflightUrls.add(url);
   fetch(url, {
-    headers: { Range: 'bytes=0-1048575' },
+    headers: { Range: `bytes=0-${bytes - 1}` },
     credentials: 'same-origin',
   })
     .catch(() => {})
     .finally(() => inflightUrls.delete(url));
 }
 
-interface CatalogClip {
-  type: string;
-  id: string;
-  cams: Partial<Record<string, string>>;
+async function runPrefetchPool(
+  urls: string[],
+  concurrency: number,
+  bytes: number,
+): Promise<void> {
+  let idx = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, urls.length) },
+    async () => {
+      while (idx < urls.length) {
+        if (document.hidden) {
+          await waitUntilVisible();
+        }
+        const url = urls[idx++];
+        prefetchVideo(url, bytes);
+        await pause(16);
+      }
+    },
+  );
+  await Promise.all(workers);
 }
 
-const HOME_PREFETCH_KEY = 'tc-home-prefetched';
-let backgroundPrefetchStarted = false;
-
-/** After the player is ready, warm the homepage and remaining clips in the background. */
-export function schedulePostLoadPrefetch(
-  currentType: string,
-  currentId: string,
-): void {
-  if (backgroundPrefetchStarted) return;
-  backgroundPrefetchStarted = true;
-
-  const run = () => {
-    prefetchHomepage();
-    void prefetchCatalogClips(currentType, currentId);
-  };
-
-  if ('requestIdleCallback' in window) {
-    requestIdleCallback(run, { timeout: 4000 });
-  } else {
-    window.setTimeout(run, 2000);
-  }
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function prefetchHomepage(): void {
-  if (sessionStorage.getItem(HOME_PREFETCH_KEY)) return;
-  sessionStorage.setItem(HOME_PREFETCH_KEY, '1');
-  warmHomepage({ includeHtml: true });
+function waitUntilVisible(): Promise<void> {
+  if (!document.hidden) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onVisible = () => {
+      if (!document.hidden) {
+        document.removeEventListener('visibilitychange', onVisible);
+        resolve();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+  });
 }
 
 let homepageWarmStarted = false;
@@ -206,63 +294,4 @@ export function scheduleWarmHomepage(): void {
   } else {
     window.setTimeout(run, 250);
   }
-}
-
-async function prefetchCatalogClips(
-  currentType: string,
-  currentId: string,
-): Promise<void> {
-  let clips: CatalogClip[] = [];
-  try {
-    const res = await fetch(eventsApiUrl(), {
-      credentials: 'same-origin',
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as { events?: CatalogClip[] };
-    clips = data.events ?? [];
-  } catch {
-    return;
-  }
-
-  const currentKey = `${currentType}/${currentId}`;
-  const queue = clips.filter((c) => {
-    const key = `${c.type}/${c.id}`;
-    return key !== currentKey && Object.keys(c.cams ?? {}).length > 0;
-  });
-
-  const CLIPS_PER_BATCH = 2;
-  const BATCH_PAUSE_MS = 80;
-
-  for (let i = 0; i < queue.length; i += CLIPS_PER_BATCH) {
-    if (document.hidden) {
-      await waitUntilVisible();
-    }
-    const batch = queue.slice(i, i + CLIPS_PER_BATCH);
-    for (const clip of batch) {
-      prefetchFirstSegment(clip.type, clip.id, clip.cams, {
-        warm: false,
-        cacheDuration: false,
-      });
-    }
-    if (i + CLIPS_PER_BATCH < queue.length) {
-      await pause(BATCH_PAUSE_MS);
-    }
-  }
-}
-
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function waitUntilVisible(): Promise<void> {
-  if (!document.hidden) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onVisible = () => {
-      if (!document.hidden) {
-        document.removeEventListener('visibilitychange', onVisible);
-        resolve();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-  });
 }

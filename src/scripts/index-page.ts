@@ -1,4 +1,4 @@
-import { prefetchFirstSegment } from './prefetch';
+import { prefetchFirstSegment, prefetchRemainingSegments, type SegmentCams } from './prefetch';
 import {
   matchesSearch,
   passesDateRange,
@@ -19,7 +19,19 @@ function cancelHoverPrefetch(): void {
   prefetchTimer = 0;
 }
 
-function runPrefetch(card: HTMLAnchorElement): void {
+function readPrefetchGroups(card: HTMLAnchorElement): SegmentCams[] | null {
+  const raw = card.dataset.prefetchGroups;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as SegmentCams[];
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Hover: warm first segment only. */
+function runHoverPrefetch(card: HTMLAnchorElement): void {
   const type = card.dataset.prefetchType;
   const id = card.dataset.prefetchId;
   const raw = card.dataset.prefetchCams;
@@ -29,6 +41,18 @@ function runPrefetch(card: HTMLAnchorElement): void {
     prefetchFirstSegment(type, id, cams);
   } catch {
     /* ignore */
+  }
+}
+
+/** Click: start loading later segments before navigation. */
+function runClickPrefetch(card: HTMLAnchorElement): void {
+  const type = card.dataset.prefetchType;
+  const id = card.dataset.prefetchId;
+  if (!type || !id) return;
+  runHoverPrefetch(card);
+  const groups = readPrefetchGroups(card);
+  if (groups && groups.length > 1) {
+    prefetchRemainingSegments(type, id, groups, { fromIndex: 1, concurrency: 8 });
   }
 }
 
@@ -53,13 +77,13 @@ function wirePrefetch(): void {
         if (isScrolling) return;
         prefetchTimer = window.setTimeout(() => {
           if (isScrolling) return;
-          runPrefetch(card);
+          runHoverPrefetch(card);
         }, HOVER_PREFETCH_MS);
       };
       card.addEventListener('mouseenter', scheduleHoverPrefetch);
       card.addEventListener('focus', scheduleHoverPrefetch);
-      card.addEventListener('mousedown', () => runPrefetch(card));
-      card.addEventListener('touchstart', () => runPrefetch(card), {
+      card.addEventListener('mousedown', () => runClickPrefetch(card));
+      card.addEventListener('touchstart', () => runClickPrefetch(card), {
         passive: true,
       });
       card.addEventListener('mouseleave', cancelHoverPrefetch);

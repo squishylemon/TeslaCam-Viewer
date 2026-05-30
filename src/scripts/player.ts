@@ -1,6 +1,6 @@
 import {
   cachedFirstSegmentDuration,
-  schedulePostLoadPrefetch,
+  scheduleCurrentClipPrefetch,
   videoApiUrl,
 } from './prefetch';
 
@@ -243,10 +243,7 @@ function init(root: HTMLElement): void {
     startAutoplay();
     bindDurationFromActiveGroup(0);
 
-    if (groups.length <= 1) {
-      schedulePostLoadPrefetch(data.type, data.id);
-      return;
-    }
+    if (groups.length <= 1) return;
 
     const tasks = groups.slice(1).map((_, idx) => async () => {
       await probeGroup(idx + 1);
@@ -255,12 +252,11 @@ function init(root: HTMLElement): void {
       computeEventOffset();
       renderMarkers();
     });
-    await runPool(tasks, 2);
+    await runPool(tasks, 4);
     recomputeOffsets();
     timeTotal.textContent = fmt(total);
     computeEventOffset();
     renderMarkers();
-    schedulePostLoadPrefetch(data.type, data.id);
   }
 
   function probeOne(url: string): Promise<number> {
@@ -722,6 +718,11 @@ function init(root: HTMLElement): void {
   applyRate();
   computeEventOffset();
   renderMarkers();
+  scheduleCurrentClipPrefetch(
+    data.type,
+    data.id,
+    groups.map((g) => ({ cams: g.files })),
+  );
   requestAnimationFrame(frame);
   void probeTimelineAfterFirstFrame();
 
