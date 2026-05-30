@@ -16,6 +16,23 @@ export function libraryMountRoot(): string {
   return process.env.LIBRARY_MOUNT_ROOT?.trim() || '/app/data/libraries';
 }
 
+/** CIFS mounts //host/share only; deeper paths are resolved after mount. */
+export function splitSmbUnc(unc: string): { mountTarget: string; subfolder: string } {
+  const trimmed = unc.trim().replace(/\\/g, '/');
+  const withoutScheme = trimmed.replace(/^\/\//, '').replace(/^smb:\/\//i, '');
+  const segments = withoutScheme.split('/').filter(Boolean);
+  if (segments.length < 2) {
+    throw new Error(
+      'SMB path must include a host and share name (e.g. 192.168.50.189/TeslaCam or //nas/Videos/TeslaCam).',
+    );
+  }
+  const [host, share, ...rest] = segments;
+  return {
+    mountTarget: `//${host}/${share}`,
+    subfolder: rest.join('/'),
+  };
+}
+
 function isMounted(mountPoint: string): boolean {
   try {
     execSync(`mountpoint -q "${mountPoint}"`, { stdio: 'ignore' });
@@ -40,7 +57,7 @@ function mountExecDetail(err: unknown): string {
     .trim();
 }
 
-function mountExecError(err: unknown, requiresCredentials: boolean): Error {
+function mountExecError(err: unknown, requiresCredentials: boolean, mountTarget: string): Error {
   const detail = mountExecDetail(err);
 
   if (/Unable to apply new capability set/i.test(detail)) {
@@ -48,6 +65,16 @@ function mountExecError(err: unknown, requiresCredentials: boolean): Error {
       'SMB mount blocked by Docker security (Unable to apply new capability set). ' +
         'Recreate the web container after updating docker-compose.yml (SYS_ADMIN, DAC_READ_SEARCH, seccomp unconfined). ' +
         'On Docker Desktop you can also mount the share on the host and add the folder as a local library path.',
+    );
+  }
+
+  if (/mount error\(22\)|return code = -22/i.test(detail)) {
+    return new Error(
+      `SMB mount failed (invalid argument) for ${mountTarget}. ` +
+        'Use the exact share name from Windows (e.g. if the share is Videos with a TeslaCam folder inside, use 192.168.50.189/Videos/TeslaCam). ' +
+        (requiresCredentials
+          ? 'Check username and password (try COMPUTERNAME\\user).'
+          : 'Enable "Requires credentials" — Windows usually blocks guest access.'),
     );
   }
 
@@ -59,8 +86,7 @@ function mountExecError(err: unknown, requiresCredentials: boolean): Error {
       );
     }
     return new Error(
-      'Windows rejected guest access to this share (error 128). Enable "Requires credentials" and sign in with a Windows user that can open the folder, ' +
-        'or on the host PC enable insecure guest logons (Network → Advanced sharing → guest access).',
+      'Windows rejected guest access to this share (error 128). Enable "Requires credentials" and sign in with a Windows user that can open the folder.',
     );
   }
 
@@ -75,7 +101,7 @@ function mountExecError(err: unknown, requiresCredentials: boolean): Error {
   return new Error(detail || 'SMB mount failed');
 }
 
-type MountAttempt = { label: string; opts: string[] };
+type MountAttempt = { opts: string[] };
 
 function parseSmbUser(username: string | null): { user: string; domain?: string } {
   const raw = username?.trim() || '';
@@ -91,45 +117,37 @@ function parseSmbUser(username: string | null): { user: string; domain?: string 
   return { user: raw };
 }
 
-function buildMountAttempts(
-  requiresCredentials: boolean,
-  username: string | null,
-  password: string | null,
-  credFile: string | null,
-): MountAttempt[] {
-  const common = [
-    'uid=1000',
-    'gid=1000',
-    'iocharset=utf8',
-    'file_mode=0775',
-    'dir_mode=0775',
-    'noperm',
-    'noserverino',
-  ];
+function writeCredFile(
+  username: string,
+  password: string,
+  domain?: string,
+): string {
+  const credFile = path.join(os.tmpdir(), `teslacam-cifs-${randomBytes(8).toString('hex')}.cred`);
+  const credLines = [`username=${username}`, `password=${password}`];
+  if (domain) credLines.push(`domain=${domain}`);
+  fs.writeFileSync(credFile, `${credLines.join('\n')}\n`, { mode: 0o600 });
+  return credFile;
+}
 
-  if (requiresCredentials) {
-    const auth = [`credentials=${credFile!}`];
-    return [
-      { label: 'ntlmssp/3.0', opts: [...auth, ...common, 'vers=3.0', 'sec=ntlmssp'] },
-      { label: 'ntlmv2/3.0', opts: [...auth, ...common, 'vers=3.0', 'sec=ntlmv2'] },
-      { label: 'ntlm/2.1', opts: [...auth, ...common, 'vers=2.1', 'sec=ntlm'] },
-    ];
-  }
-
+function buildMountAttempts(credFile: string): MountAttempt[] {
+  const auth = `credentials=${credFile}`;
+  // Minimal opts: Alpine/Docker kernels often reject guest,file_mode,noperm combos (EINVAL 22).
   return [
-    { label: 'guest/ntlmssp/3.0', opts: ['guest', ...common, 'vers=3.0', 'sec=ntlmssp'] },
-    { label: 'guest/ntlmv2/3.0', opts: ['guest', ...common, 'vers=3.0', 'sec=ntlmv2'] },
-    { label: 'guest/2.1', opts: ['guest', ...common, 'vers=2.1', 'sec=ntlm'] },
+    { opts: [auth, 'uid=0', 'gid=0', 'vers=3.0'] },
+    { opts: [auth, 'uid=0', 'gid=0', 'vers=3.0', 'sec=ntlmssp'] },
+    { opts: [auth, 'uid=0', 'gid=0', 'vers=3.0', 'sec=ntlmv2'] },
+    { opts: [auth, 'uid=0', 'gid=0', 'vers=3.0', 'sec=none'] },
+    { opts: [auth, 'uid=0', 'gid=0', 'vers=2.1', 'sec=ntlmssp'] },
   ];
 }
 
-function tryMountCifs(source: string, mountPoint: string, attempts: MountAttempt[]): void {
+function tryMountCifs(mountTarget: string, mountPoint: string, attempts: MountAttempt[]): void {
   let lastErr: unknown;
   for (const attempt of attempts) {
     const opts = attempt.opts.join(',');
     try {
       execSync(
-        `mount.cifs ${shellQuote(source)} ${shellQuote(mountPoint)} -o ${shellQuote(opts)}`,
+        `mount.cifs ${shellQuote(mountTarget)} ${shellQuote(mountPoint)} -o ${shellQuote(opts)}`,
         { stdio: 'pipe', timeout: 30_000 },
       );
       return;
@@ -141,7 +159,7 @@ function tryMountCifs(source: string, mountPoint: string, attempts: MountAttempt
 }
 
 function mountSmb(
-  source: string,
+  mountTarget: string,
   mountPoint: string,
   username: string | null,
   password: string | null,
@@ -156,28 +174,31 @@ function mountSmb(
     }
   }
 
-  let credFile: string | null = null;
+  const credFiles: string[] = [];
+  const attempts: MountAttempt[] = [];
+
   if (requiresCredentials) {
     const { user, domain } = parseSmbUser(username);
     if (!user) throw new Error('Username is required when credentials are enabled.');
-    credFile = path.join(os.tmpdir(), `teslacam-cifs-${randomBytes(8).toString('hex')}.cred`);
-    const pass = password ?? '';
-    const credLines = [`username=${user}`, `password=${pass}`];
-    if (domain) credLines.push(`domain=${domain}`);
-    fs.writeFileSync(credFile, `${credLines.join('\n')}\n`, { mode: 0o600 });
+    const credFile = writeCredFile(user, password ?? '', domain);
+    credFiles.push(credFile);
+    attempts.push(...buildMountAttempts(credFile));
+  } else {
+    // Do not use the `guest` mount flag — it often returns EINVAL on Alpine; use sec=none + guest creds.
+    const guestCred = writeCredFile('guest', '');
+    credFiles.push(guestCred);
+    attempts.push(...buildMountAttempts(guestCred));
   }
 
-  const attempts = buildMountAttempts(requiresCredentials, username, password, credFile);
-
   try {
-    tryMountCifs(source, mountPoint, attempts);
+    tryMountCifs(mountTarget, mountPoint, attempts);
     fs.writeFileSync(path.join(mountPoint, '.teslacam-mounted'), '', 'utf8');
   } catch (err) {
-    throw mountExecError(err, requiresCredentials);
+    throw mountExecError(err, requiresCredentials, mountTarget);
   } finally {
-    if (credFile) {
+    for (const file of credFiles) {
       try {
-        fs.unlinkSync(credFile);
+        fs.unlinkSync(file);
       } catch {
         /* ignore */
       }
@@ -202,6 +223,7 @@ export function resolveLocationRoot(
     return normalized;
   }
 
+  const { mountTarget, subfolder } = splitSmbUnc(normalized);
   const mountPoint = mountPointForId(libraryMountRoot(), loc.id);
   const pass =
     passwordOverride !== undefined
@@ -211,15 +233,20 @@ export function resolveLocationRoot(
         : null;
 
   if (!isMounted(mountPoint)) {
-    mountSmb(
-      normalized,
-      mountPoint,
-      loc.smbUsername ?? null,
-      pass,
-      loc.requiresCredentials,
+    mountSmb(mountTarget, mountPoint, loc.smbUsername ?? null, pass, loc.requiresCredentials);
+  }
+
+  const rootPath = subfolder ? path.join(mountPoint, subfolder) : mountPoint;
+  if (!fs.existsSync(rootPath)) {
+    throw new Error(
+      subfolder
+        ? `Folder "${subfolder}" was not found on share ${mountTarget}. Check the path — use host/share/subfolder if TeslaCam is inside the share.`
+        : `Share ${mountTarget} mounted but is not accessible.`,
     );
   }
-  return mountPoint;
+  const stat = fs.statSync(rootPath);
+  if (!stat.isDirectory()) throw new Error('Library path is not a directory.');
+  return rootPath;
 }
 
 export function unmountLocation(id: string): void {

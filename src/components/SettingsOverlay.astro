@@ -562,8 +562,9 @@ const isAdmin = user.isAdmin;
             placeholder="192.168.50.23/TeslaCam or /mnt/nas/TeslaCam"
           />
           <p class="field-hint">
-            SMB examples: <code>192.168.50.23/TeslaCam</code> or <code>//nas/share/TeslaCam</code>.
-            Local paths must exist inside the container (bind-mount from the host).
+            SMB: <code>192.168.50.189/TeslaCam</code> if <code>TeslaCam</code> is the share name, or
+            <code>192.168.50.189/Videos/TeslaCam</code> if <code>TeslaCam</code> is a folder inside share
+            <code>Videos</code>. Local paths must exist inside the container (bind-mount from the host).
           </p>
         </label>
         <div class="location-creds-control">
