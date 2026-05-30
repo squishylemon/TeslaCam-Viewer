@@ -94,16 +94,17 @@ function init(root: HTMLElement): void {
   // Virtual-timeline position (seconds) where the Sentry event was triggered.
   let eventOffset: number | null = null;
 
-  // Pool of off-screen <video> elements used to warm the next group's files
-  // (all four cameras) so segment transitions are seamless.
-  const preloaders: HTMLVideoElement[] = Array.from({ length: 4 }, () => {
-    const v = document.createElement('video');
-    v.preload = 'auto';
-    v.muted = true;
-    return v;
-  });
-  let preloadedFor = -1;
+  /** Full clip files in memory — instant segment changes without re-fetching SMB/HTTP. */
+  const mediaCache = new Map<string, { blobUrl: string; duration: number }>();
+
   let segmentEndHandled = false;
+
+  window.addEventListener('pagehide', () => {
+    for (const { blobUrl } of mediaCache.values()) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    mediaCache.clear();
+  });
 
   // --- Helpers ------------------------------------------------------------
   const clamp = (v: number, lo: number, hi: number) =>
@@ -177,24 +178,6 @@ function init(root: HTMLElement): void {
     total = acc;
   }
 
-  /** Read segment duration from the on-screen videos (no extra network fetch). */
-  function bindDurationFromActiveGroup(i: number): void {
-    const cv = clockVideo(i);
-    if (!cv) return;
-    const apply = () => {
-      const d = cv.duration;
-      if (d > 0 && Number.isFinite(d)) {
-        groups[i].duration = d;
-        recomputeOffsets();
-        timeTotal.textContent = fmt(total);
-        computeEventOffset();
-        renderMarkers();
-      }
-    };
-    if (cv.readyState >= 1) apply();
-    else cv.addEventListener('loadedmetadata', apply, { once: true });
-  }
-
   /** Muted autoplay once the first segment can render (browser-friendly). */
   function startAutoplay(): void {
     playAll();
@@ -214,8 +197,9 @@ function init(root: HTMLElement): void {
 
   function setLoadProgress(done: number, totalCount: number): void {
     const pct = totalCount > 0 ? Math.round((done / totalCount) * 100) : 0;
-    overlayText.textContent =
-      totalCount > 0 ? `Loading videos… ${done} / ${totalCount}` : 'Loading videos…';
+    if (totalCount > 0 && done <= totalCount) {
+      overlayText.textContent = `Loading videos… ${done} / ${totalCount}`;
+    }
     overlayProgressBar.style.width = `${pct}%`;
   }
 
@@ -236,29 +220,50 @@ function init(root: HTMLElement): void {
     return out;
   }
 
-  /** Buffer a single MP4 until it can play through (or timeout with partial buffer). */
-  function loadVideoFully(url: string): Promise<number> {
+  function probeBlobDuration(blobUrl: string): Promise<number> {
     return new Promise((resolve) => {
       const v = document.createElement('video');
-      v.preload = 'auto';
+      v.preload = 'metadata';
       v.muted = true;
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        const d =
-          v.duration > 0 && Number.isFinite(v.duration) ? v.duration : 0;
+      const done = (duration: number) => {
         v.removeAttribute('src');
         v.load();
-        resolve(d);
+        resolve(duration);
       };
-      const timer = window.setTimeout(finish, 120_000);
-      v.addEventListener('canplaythrough', finish, { once: true });
-      v.addEventListener('error', finish, { once: true });
-      v.src = url;
-      v.load();
+      v.addEventListener(
+        'loadedmetadata',
+        () => {
+          const d =
+            v.duration > 0 && Number.isFinite(v.duration) ? v.duration : 0;
+          done(d);
+        },
+        { once: true },
+      );
+      v.addEventListener('error', () => done(0), { once: true });
+      v.src = blobUrl;
     });
+  }
+
+  /** Download a file into a blob URL so segment skips never hit the network again. */
+  async function loadVideoToCache(file: string, httpUrl: string): Promise<number> {
+    const hit = mediaCache.get(file);
+    if (hit) return hit.duration;
+
+    const res = await fetch(httpUrl, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`Failed to load ${file}`);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const duration = await probeBlobDuration(blobUrl);
+    mediaCache.set(file, { blobUrl, duration });
+    return duration;
+  }
+
+  function srcForFile(file: string): string {
+    return mediaCache.get(file)?.blobUrl ?? videoUrl(file);
+  }
+
+  function isFileCached(file: string): boolean {
+    return mediaCache.has(file);
   }
 
   function applyDurationsFromMap(durations: Map<string, number>): void {
@@ -298,7 +303,7 @@ function init(root: HTMLElement): void {
     let completed = 0;
 
     const tasks = entries.map((entry) => async () => {
-      const duration = await loadVideoFully(entry.url);
+      const duration = await loadVideoToCache(entry.file, entry.url);
       if (duration > 0) durations.set(entry.file, duration);
       completed += 1;
       setLoadProgress(completed, totalCount);
@@ -306,6 +311,20 @@ function init(root: HTMLElement): void {
 
     await runPool(tasks, 4);
     applyDurationsFromMap(durations);
+    await warmAllDecoders();
+  }
+
+  /** Mount every segment on the four players once so later skips only seek in RAM. */
+  async function warmAllDecoders(): Promise<void> {
+    if (groups.length === 0) return;
+    for (let i = 0; i < groups.length; i++) {
+      setLoadProgress(i, groups.length);
+      overlayText.textContent = `Preparing playback… ${i + 1} / ${groups.length}`;
+      loadGroup(i, 0, false);
+      await new Promise<void>((resolve) => playWhenReady(resolve));
+      for (const c of CAM_ORDER) videos[c].pause();
+    }
+    overlayProgressBar.style.width = '100%';
   }
 
   async function runPool(
@@ -322,10 +341,16 @@ function init(root: HTMLElement): void {
     await Promise.all(workers);
   }
 
-  /** Start playback once the active group's videos can decode frames. */
+  function isGroupDecoded(i: number): boolean {
+    const cams = availableCams(i);
+    if (cams.length === 0) return true;
+    return cams.every((c) => videos[c].readyState >= HTMLMediaElement.HAVE_FUTURE_DATA);
+  }
+
+  /** Wait until decoders are ready (blob-backed switches are usually immediate). */
   function playWhenReady(onReady: () => void): void {
     const cams = availableCams(currentIndex);
-    if (cams.length === 0) {
+    if (cams.length === 0 || isGroupDecoded(currentIndex)) {
       onReady();
       return;
     }
@@ -342,13 +367,16 @@ function init(root: HTMLElement): void {
     };
     for (const c of cams) {
       const v = videos[c];
-      if (v.readyState >= 2) done();
+      const file = groups[currentIndex].files[c];
+      const eventName =
+        file && isFileCached(file) ? 'loadeddata' : 'canplay';
+      if (v.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) done();
       else {
-        v.addEventListener('canplay', done, { once: true });
+        v.addEventListener(eventName, done, { once: true });
         v.addEventListener('error', done, { once: true });
       }
     }
-    window.setTimeout(finish, 12_000);
+    window.setTimeout(finish, 4_000);
   }
 
   // --- Group loading ------------------------------------------------------
@@ -356,18 +384,19 @@ function init(root: HTMLElement): void {
     currentIndex = clamp(i, 0, groups.length - 1);
     segmentEndHandled = false;
     const g = groups[currentIndex];
+    let srcChanged = false;
 
     for (const c of CAM_ORDER) {
       const file = g.files[c];
       const v = videos[c];
       if (file) {
         wraps[c].classList.remove('empty');
-        // Eagerly buffer the active group so playback starts quickly.
+        const src = srcForFile(file);
         v.preload = 'auto';
-        if (loadedFile[c] !== file) {
-          v.src = videoUrl(file);
-          v.load();
+        if (loadedFile[c] !== file || v.src !== src) {
+          v.src = src;
           loadedFile[c] = file;
+          srcChanged = true;
         }
         v.playbackRate = rate;
         v.muted = muted;
@@ -377,21 +406,25 @@ function init(root: HTMLElement): void {
           v.removeAttribute('src');
           v.load();
           loadedFile[c] = undefined;
+          srcChanged = true;
         }
       }
     }
 
     pendingSeekLocal = localTime;
-    applyPendingSeek();
 
-    bindDurationFromActiveGroup(currentIndex);
+    const startPlayback = () => {
+      applyPendingSeek();
+      if (resumePlaying) playAll();
+    };
 
-    if (resumePlaying) {
-      playWhenReady(() => {
-        applyPendingSeek();
-        playAll();
-      });
+    if (!srcChanged && isGroupDecoded(currentIndex)) {
+      startPlayback();
+      return;
     }
+
+    applyPendingSeek();
+    if (resumePlaying) playWhenReady(startPlayback);
   }
 
   function applyPendingSeek(): void {
@@ -469,7 +502,6 @@ function init(root: HTMLElement): void {
     if (segmentEndHandled) return;
     segmentEndHandled = true;
     if (currentIndex < groups.length - 1) {
-      preloadedFor = -1;
       loadGroup(currentIndex + 1, 0, playing);
     } else {
       pauseAll();
@@ -504,28 +536,6 @@ function init(root: HTMLElement): void {
         }
       }
       if (playing && v.paused) v.play().catch(() => {});
-    }
-  }
-
-  function maybePreloadNext(): void {
-    const cv = clockVideo(currentIndex);
-    if (!cv || !playing) return;
-    const dur = groups[currentIndex].duration;
-    const remaining = dur - cv.currentTime;
-    const next = currentIndex + 1;
-    // Warm all four cameras of the next group once we're past the halfway
-    // point (or within 8s of the end), so the transition is seamless.
-    const trigger = remaining < 8 || cv.currentTime > dur * 0.5;
-    if (trigger && next < groups.length && preloadedFor !== next) {
-      const files = CAM_ORDER.map((c) => groups[next].files[c]).filter(
-        Boolean,
-      ) as string[];
-      files.forEach((file, idx) => {
-        const v = preloaders[idx % preloaders.length];
-        v.src = videoUrl(file);
-        v.load();
-      });
-      preloadedFor = next;
     }
   }
 
@@ -564,7 +574,6 @@ function init(root: HTMLElement): void {
     } else {
       syncDrift();
       checkSegmentEnd();
-      maybePreloadNext();
     }
     updateUI();
     requestAnimationFrame(frame);
