@@ -66,4 +66,30 @@ export async function migrate(pool: pg.Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE webauthn_credentials ADD COLUMN IF NOT EXISTS rp_id TEXT;
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS library_locations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      location_type TEXT NOT NULL DEFAULT 'local',
+      smb_username TEXT,
+      smb_password_enc TEXT,
+      requires_credentials BOOLEAN NOT NULL DEFAULT FALSE,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    INSERT INTO site_settings (key, value)
+    VALUES ('builtin_sftp_enabled', 'true')
+    ON CONFLICT (key) DO NOTHING;
+  `);
 }

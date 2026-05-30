@@ -1,5 +1,6 @@
 import type { AstroCookies } from 'astro';
-import { findVehicle, listVehicles, type Vehicle } from './vehicles';
+import { listAllVehicles } from './libraries/resolve';
+import { findVehicle, type Vehicle } from './vehicles';
 
 export const VEHICLE_COOKIE = 'tc_vehicle';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -44,7 +45,7 @@ export function resolveActiveVehicle(
 }
 
 export function vehiclesForLibrary(): Vehicle[] {
-  return listVehicles();
+  return listAllVehicles();
 }
 
 export function vehicleFromRequest(

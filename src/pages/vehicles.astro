@@ -2,8 +2,9 @@
 import Layout from '../layouts/Layout.astro';
 import BrandMark from '../components/BrandMark.astro';
 import VehicleSilhouette from '../components/VehicleSilhouette.astro';
-import { effectiveTeslacamDir, validateTeslacamDir } from '../lib/site-config';
-import { listVehicles, type ModelCode } from '../lib/vehicles';
+import { listAllVehicles } from '../lib/libraries/resolve';
+import { validateAllLibraries } from '../lib/site-config';
+import type { ModelCode } from '../lib/vehicles';
 
 export const prerender = false;
 
@@ -12,9 +13,8 @@ if (!user) {
   return Astro.redirect('/login');
 }
 
-const libraryPath = effectiveTeslacamDir();
-const libraryCheck = validateTeslacamDir(libraryPath);
-const vehicles = listVehicles(libraryPath);
+const libraryCheck = validateAllLibraries();
+const vehicles = listAllVehicles();
 
 if (vehicles.length <= 1) {
   const only = vehicles[0];

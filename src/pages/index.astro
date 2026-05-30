@@ -6,14 +6,15 @@ import SettingsOverlay from '../components/SettingsOverlay.astro';
 import { hasCustomLogo, logoPublicUrl } from '../lib/branding';
 import { getSftpConnectionInfo } from '../lib/sftp-info';
 import { getSiteAccessInfo } from '../lib/site-hostname';
-import { effectiveTeslacamDir, validateTeslacamDir } from '../lib/site-config';
+import { getLibrarySettings } from '../lib/libraries/store';
+import { listAllVehicles } from '../lib/libraries/resolve';
+import { validateAllLibraries } from '../lib/site-config';
 import {
   readVehicleCookie,
   resolveActiveVehicle,
   setVehicleCookie,
 } from '../lib/vehicle-context';
 import { listEvents, type TeslaEvent } from '../lib/teslacam';
-import { listVehicles } from '../lib/vehicles';
 
 export const prerender = false;
 
@@ -23,11 +24,11 @@ if (!user) {
 }
 
 const logoUrl = hasCustomLogo() ? logoPublicUrl() : null;
-const libraryPath = effectiveTeslacamDir();
-const libraryCheck = validateTeslacamDir(libraryPath);
+const libraryCheck = validateAllLibraries();
+const librarySettings = await getLibrarySettings();
 const sftpInfo = getSftpConnectionInfo();
 const siteAccess = getSiteAccessInfo();
-const vehicles = listVehicles(libraryPath);
+const vehicles = listAllVehicles();
 const queryVehicle = Astro.url.searchParams.get('vehicle');
 
 if (queryVehicle !== null) {
@@ -350,6 +351,7 @@ const groups = [
     librarySavedCount={libraryCheck.savedCount ?? 0}
     librarySentryCount={libraryCheck.sentryCount ?? 0}
     libraryVehicleCount={libraryCheck.vehicleCount ?? vehicles.length}
+    builtinSftpEnabled={librarySettings.builtinSftpEnabled}
     initialOpen={openSettings}
   />
 </Layout>

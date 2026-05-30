@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { refreshLibraries } from '../libraries/resolve';
 import { ensureSftpHostDetected } from '../sftp-credentials';
 import { migrate } from './migrate';
 import { seedAdminUser } from './seed';
@@ -28,6 +29,7 @@ export function ensureDb(): Promise<void> {
       await ensureSftpHostDetected();
       await migrate(getPool());
       await seedAdminUser(getPool());
+      await refreshLibraries();
     })();
   }
   return ready;

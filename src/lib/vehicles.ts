@@ -25,6 +25,9 @@ export interface Vehicle {
   label: string;
   savedCount: number;
   sentryCount: number;
+  /** Set when multiple library locations are configured. */
+  locationId?: string;
+  locationName?: string;
 }
 
 function isModelCode(value: string): value is ModelCode {

@@ -5,6 +5,7 @@ import {
 } from './webauthn-client';
 import { wireThemePicker } from './theme';
 import { initAdminUsers } from './settings-admin';
+import { initLibraryLocations } from './settings-locations';
 
 let panelInitialized = false;
 
@@ -240,6 +241,8 @@ export function initSettingsPanel(): void {
     const selfId = Number.parseInt(adminSection.dataset.selfId ?? '', 10);
     if (Number.isFinite(selfId)) initAdminUsers(selfId);
   }
+
+  initLibraryLocations();
 
   initLogoUpload();
   initPasskeyUpgrade();

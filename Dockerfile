@@ -9,7 +9,7 @@ RUN npm run build
 
 # --- Runtime stage ---
 FROM node:22-alpine AS runtime
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl cifs-utils util-linux
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { clipRootForVehicle } from './libraries/resolve';
 import { effectiveTeslacamDir } from './site-config';
 import { vehicleClipRoot } from './vehicles';
 
@@ -63,6 +64,10 @@ interface EventJson {
 
 /** Resolve clip root for a vehicle (empty id = legacy flat library). */
 export function teslaCamRoot(vehicleId = ''): string {
+  if (vehicleId) {
+    const rooted = clipRootForVehicle(vehicleId);
+    if (rooted) return rooted;
+  }
   return vehicleClipRoot(effectiveTeslacamDir(), vehicleId);
 }
 

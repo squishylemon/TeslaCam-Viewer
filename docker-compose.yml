@@ -72,6 +72,8 @@ services:
   web:
     image: ${TESLACAM_WEB_IMAGE:-ghcr.io/squishylemon/teslacam-web:latest}
     container_name: teslacam-viewer
+    cap_add:
+      - SYS_ADMIN
     depends_on:
       db:
         condition: service_healthy
@@ -93,6 +95,7 @@ services:
       - branding:/app/data/branding
       - sftpconfig:/app/data/sftp
       - webtls:/app/data/tls
+      - library_mounts:/app/data/libraries
     restart: unless-stopped
 
 volumes:
@@ -100,4 +103,5 @@ volumes:
   teslacam:
   branding:
   sftpconfig:
+  library_mounts:
   webtls:
